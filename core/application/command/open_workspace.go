@@ -114,6 +114,14 @@ func (h *OpenWorkspaceHandler) Handle(ctx context.Context, cmd OpenWorkspaceComm
 		h.registry.Add(paneID, sess)
 		opened = append(opened, paneID)
 
+		// A6.1: reap the session from the registry when its PTY exits naturally
+		// (e.g. the user types "exit"). The goroutine captures the session and
+		// paneID by value so it is not affected by loop variable reuse.
+		go func(id string, s port.TerminalSession) {
+			<-s.Done()
+			h.registry.Remove(id)
+		}(paneID, sess)
+
 		// Send autoRun startup commands.
 		for _, sc := range pane.Commands() {
 			if sc.AutoRun() {
@@ -127,6 +135,13 @@ func (h *OpenWorkspaceHandler) Handle(ctx context.Context, cmd OpenWorkspaceComm
 
 	// Record the last-opened workspace.
 	if err := h.state.SetLastOpened(ctx, cmd.WorkspaceID); err != nil {
+		// A5: clean up all sessions opened in this call so they are not leaked.
+		for _, openedID := range opened {
+			if s, ok := h.registry.Get(openedID); ok {
+				_ = s.Close()
+				h.registry.Remove(openedID)
+			}
+		}
 		return OpenWorkspaceResult{}, fmt.Errorf("open workspace: set last opened: %w", err)
 	}
 

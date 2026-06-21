@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/ysksm/multi-terminals/apps/web"
 	"github.com/ysksm/multi-terminals/core/infrastructure/jsonstore"
@@ -30,7 +34,29 @@ func main() {
 
 	addr := ":" + portFromEnv("8080")
 	fmt.Printf("multi-terminals: listening on %s (baseDir=%s)\n", addr, baseDir)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+
+	srv := &http.Server{Addr: addr, Handler: mux}
+
+	// A6.2: graceful shutdown on SIGINT / SIGTERM.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-quit
+		log.Println("multi-terminals: shutting down …")
+
+		// Close all running PTY sessions so child processes are not orphaned.
+		deps.Registry.CloseAll()
+
+		// Give in-flight HTTP requests 10 seconds to finish.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("multi-terminals: server shutdown error: %v", err)
+		}
+	}()
+
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("multi-terminals: server error: %v", err)
 	}
 }

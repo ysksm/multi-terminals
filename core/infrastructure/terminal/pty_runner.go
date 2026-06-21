@@ -131,7 +131,17 @@ func (s *ptySession) Write(data []byte) error {
 }
 
 // Resize updates the PTY window size.
+// It acquires writeMu (the same lock used by Write and Close) so that it
+// cannot race with a concurrent Close that calls f.Close().
 func (s *ptySession) Resize(cols, rows uint16) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	// If the session has already been closed, f is invalid — return early.
+	select {
+	case <-s.closeKill:
+		return nil
+	default:
+	}
 	return pty.Setsize(s.f, &pty.Winsize{Cols: cols, Rows: rows})
 }
 

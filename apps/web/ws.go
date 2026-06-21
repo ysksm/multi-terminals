@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/ysksm/multi-terminals/core/application/command"
@@ -23,6 +24,37 @@ type wsInputMsg struct {
 	// For type=="resize"
 	Cols uint16 `json:"cols"`
 	Rows uint16 `json:"rows"`
+}
+
+// ConnGuard enforces at most one active WebSocket attachment per paneId.
+// It is safe for concurrent use.
+type ConnGuard struct {
+	mu       sync.Mutex
+	attached map[string]bool
+}
+
+// NewConnGuard returns a new, empty ConnGuard.
+func NewConnGuard() *ConnGuard {
+	return &ConnGuard{attached: make(map[string]bool)}
+}
+
+// claim tries to claim paneID. Returns true if successful (caller holds the
+// attachment), false if already claimed.
+func (g *ConnGuard) claim(paneID string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.attached[paneID] {
+		return false
+	}
+	g.attached[paneID] = true
+	return true
+}
+
+// release releases a previously claimed paneID.
+func (g *ConnGuard) release(paneID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.attached, paneID)
 }
 
 // handlePaneIO upgrades the connection to WebSocket and bridges I/O for the
@@ -47,27 +79,60 @@ func (d Deps) handlePaneIO(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A3: enforce single consumer per pane. Reject (409) if already attached.
+	if !d.ConnGuard.claim(paneID) {
+		http.Error(w, `{"error":"pane already attached"}`, http.StatusConflict)
+		return
+	}
+	// Release the claim when the handler (and the pump goroutine) are both done.
+	// We use a separate WaitGroup so release happens only after the pump exits.
+	var pumpDone sync.WaitGroup
+	pumpDone.Add(1)
+	go func() {
+		pumpDone.Wait()
+		d.ConnGuard.release(paneID)
+	}()
+
 	// Upgrade the HTTP connection to WebSocket.
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		// upgrader has already written the error response.
+		// upgrader has already written the error response; the pump was never
+		// started, so signal that it is "done" immediately.
+		pumpDone.Done()
 		return
 	}
 
-	// done is closed when either side (client or output pump) terminates, so
-	// the other side can stop cleanly.
+	// A1: idempotent done-channel closer shared by both goroutines.
+	// closed when either the client disconnects (input loop) or the session ends
+	// (output pump).
 	done := make(chan struct{})
+	var closeOnce sync.Once
+	closeDone := func() {
+		closeOnce.Do(func() { close(done) })
+	}
+
+	// wsMu serializes all WebSocket writes so gorilla's single-writer
+	// requirement is met even when two code paths could write concurrently.
+	var wsMu sync.Mutex
+	wsWrite := func(mt int, data []byte) error {
+		wsMu.Lock()
+		defer wsMu.Unlock()
+		return ws.WriteMessage(mt, data)
+	}
 
 	// Output pump: session → client.
+	// A4: drive purely off sess.Output() (range loop) so no buffered chunks are
+	// dropped. The pump exits when:
+	//   a) the output channel is closed (session ended), or
+	//   b) done fires (client disconnected) — we select on done alongside
+	//      the channel to avoid being blocked forever on a long-lived session.
 	go func() {
 		defer func() {
-			// Signal the input loop to stop and close the WebSocket.
-			select {
-			case <-done:
-			default:
-				close(done)
-			}
+			pumpDone.Done()
+			closeDone()
+			wsMu.Lock()
 			ws.Close()
+			wsMu.Unlock()
 		}()
 
 		for {
@@ -75,27 +140,20 @@ func (d Deps) handlePaneIO(w http.ResponseWriter, r *http.Request) {
 			case chunk, more := <-sess.Output():
 				if !more {
 					// Session output channel closed — process exited or Close called.
+					// Send a clean close frame before exiting.
+					_ = wsWrite(websocket.CloseMessage,
+						websocket.FormatCloseMessage(websocket.CloseNormalClosure, "session ended"))
 					return
 				}
-				if err := ws.WriteMessage(websocket.BinaryMessage, chunk); err != nil {
-					// Client disconnected or write failed.
+				if err := wsWrite(websocket.BinaryMessage, chunk); err != nil {
+					// Client write failed.
 					return
 				}
 			case <-done:
+				// Client disconnected; exit pump without draining to avoid a
+				// goroutine leak.  Any remaining output is intentionally dropped
+				// because there is no client to receive it.
 				return
-			case <-sess.Done():
-				// Drain remaining output.
-				for {
-					select {
-					case chunk, more := <-sess.Output():
-						if !more {
-							return
-						}
-						_ = ws.WriteMessage(websocket.BinaryMessage, chunk)
-					default:
-						return
-					}
-				}
 			}
 		}
 	}()
@@ -104,12 +162,8 @@ func (d Deps) handlePaneIO(w http.ResponseWriter, r *http.Request) {
 	for {
 		_, msgBytes, err := ws.ReadMessage()
 		if err != nil {
-			// Client disconnected or read error — stop the output pump too.
-			select {
-			case <-done:
-			default:
-				close(done)
-			}
+			// Client disconnected or read error — signal the output pump to stop.
+			closeDone()
 			break
 		}
 
@@ -133,4 +187,9 @@ func (d Deps) handlePaneIO(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+
+	// Wait for the output pump to finish before returning. This ensures ws is
+	// not closed from two goroutines and that the ConnGuard claim is released
+	// only once the pump has fully exited.
+	<-done
 }

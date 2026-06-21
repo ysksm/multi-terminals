@@ -99,6 +99,58 @@ func TestWebSocketResizeUpdatesSession(t *testing.T) {
 	t.Fatalf("resize not applied: LastCols=%d LastRows=%d", cols, rows)
 }
 
+// TestWebSocketDuplicateConnectionRejected verifies that a second concurrent
+// WebSocket connection to the same pane is rejected (HTTP 409) while the first
+// stays active.
+func TestWebSocketDuplicateConnectionRejected(t *testing.T) {
+	deps := buildTestDeps(t)
+	mux := web.NewMux(deps)
+
+	paneID := "test-pane-dup"
+	fakeSess := apptest.NewFakeTerminalSession(paneID)
+	deps.Registry.Add(paneID, fakeSess)
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/panes/" + paneID + "/io"
+
+	// First connection — must succeed.
+	conn1 := dialWS(t, wsURL)
+	t.Cleanup(func() { conn1.Close() })
+
+	// Second connection — must be rejected with HTTP 409 (Conflict).
+	dialer := websocket.Dialer{HandshakeTimeout: 3 * time.Second}
+	_, resp, err := dialer.Dial(wsURL, nil)
+	if err == nil {
+		t.Fatalf("expected second connection to be rejected, but it succeeded")
+	}
+	if resp == nil || resp.StatusCode != http.StatusConflict {
+		status := 0
+		if resp != nil {
+			status = resp.StatusCode
+		}
+		t.Fatalf("expected HTTP 409 for duplicate connection, got %d", status)
+	}
+
+	// First connection must still be alive: send a message and verify echo.
+	msg := `{"type":"input","data":"still-alive"}`
+	if err := conn1.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
+		t.Fatalf("first connection write failed: %v", err)
+	}
+	conn1.SetReadDeadline(time.Now().Add(3 * time.Second))
+	mt, recv, err := conn1.ReadMessage()
+	if err != nil {
+		t.Fatalf("first connection read failed: %v", err)
+	}
+	if mt != websocket.BinaryMessage {
+		t.Fatalf("expected BinaryMessage, got %d", mt)
+	}
+	if string(recv) != "still-alive" {
+		t.Fatalf("expected 'still-alive', got %q", string(recv))
+	}
+}
+
 // TestWebSocketPaneNotFound verifies that connecting to a non-existent pane
 // returns HTTP 404 (upgrade rejected).
 func TestWebSocketPaneNotFound(t *testing.T) {

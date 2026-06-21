@@ -44,6 +44,7 @@ func buildTestDeps(t *testing.T) web.Deps {
 		Resize:        command.NewResizePaneHandler(reg),
 		ClosePane:     command.NewClosePaneHandler(reg),
 		Registry:      reg,
+		ConnGuard:     web.NewConnGuard(),
 	}
 }
 
