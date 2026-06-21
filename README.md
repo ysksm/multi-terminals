@@ -39,7 +39,7 @@ frontend             … Svelte + xterm.js（/api を web へプロキシ）
 ./scripts/dev.sh frontend
 ```
 
-ブラウザで **http://localhost:5173** を開く（:8080 は API 専用なので直接開くと 404 になります）。
+ブラウザで **http://localhost:5173** を開く（開発時の :8080 は API 専用です）。
 
 ### Windows
 
@@ -54,6 +54,18 @@ cd frontend; npm install; npm run dev
 ```
 
 ブラウザで **http://localhost:5173** を開く。
+
+## 本番ビルド（単一バイナリ）
+
+フロントエンドをサーバーバイナリに埋め込み、**UI と API を1ポートで配信する単一の成果物**を生成します。
+
+```sh
+./scripts/dev.sh build    # frontend をビルドして bin/multi-terminals に組み込む
+./scripts/dev.sh start    # bin/multi-terminals を起動（= ./bin/multi-terminals）
+```
+
+ブラウザで **http://localhost:8080** を開く（UI が組み込み配信されます。Vite は不要）。
+Windows でも同様にバイナリ1つで動きます（PowerShell: `go build -o bin/multi-terminals.exe ./apps/web/cmd` で frontend 組み込みビルドするには先に `cd frontend; npm run build` 後、`apps/web/webui/dist` へ配置）。最も簡単なのは `scripts/dev.sh build`（Git Bash 等）です。
 
 ## 環境変数
 
