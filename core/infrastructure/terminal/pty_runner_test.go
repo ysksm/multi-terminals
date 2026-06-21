@@ -35,9 +35,9 @@ func gatherOutput(t *testing.T, sess port.TerminalSession, check func([]byte) bo
 	}
 }
 
-// TestRunnerEchoRoundTrip starts a real /bin/sh, sends "echo hello123\n",
-// and asserts the output contains "hello123". It also verifies Done() is
-// closed after Close().
+// TestRunnerEchoRoundTrip starts a real shell, sends an echo command, and
+// asserts the output contains the marker. It also verifies Done() is closed
+// after Close(). The shell and command are OS-specific (see testshell_*.go).
 func TestRunnerEchoRoundTrip(t *testing.T) {
 	r := terminal.NewRunner()
 	ctx := context.Background()
@@ -45,7 +45,7 @@ func TestRunnerEchoRoundTrip(t *testing.T) {
 	sess, err := r.Start(ctx, port.TerminalStartRequest{
 		SessionID: "s1",
 		Dir:       t.TempDir(),
-		Shell:     "/bin/sh",
+		Shell:     testShell,
 		Cols:      80,
 		Rows:      24,
 	})
@@ -59,7 +59,7 @@ func TestRunnerEchoRoundTrip(t *testing.T) {
 
 	// Give the shell a moment to initialise, then send the echo command.
 	time.Sleep(100 * time.Millisecond)
-	if err := sess.Write([]byte("echo hello123\n")); err != nil {
+	if err := sess.Write(echoLine("hello123")); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
@@ -98,7 +98,7 @@ func TestRunnerSetsDir(t *testing.T) {
 	sess, err := r.Start(ctx, port.TerminalStartRequest{
 		SessionID: "s2",
 		Dir:       dir,
-		Shell:     "/bin/sh",
+		Shell:     testShell,
 		Cols:      80,
 		Rows:      24,
 	})
@@ -108,7 +108,7 @@ func TestRunnerSetsDir(t *testing.T) {
 	defer sess.Close()
 
 	time.Sleep(100 * time.Millisecond)
-	if err := sess.Write([]byte("pwd\n")); err != nil {
+	if err := sess.Write(pwdLine()); err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 

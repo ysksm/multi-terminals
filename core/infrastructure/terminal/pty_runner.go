@@ -1,14 +1,13 @@
-// Package terminal provides a creack/pty-backed implementation of
-// port.TerminalRunner and port.TerminalSession.
+// Package terminal provides a cross-platform (Unix PTY / Windows ConPTY)
+// implementation of port.TerminalRunner and port.TerminalSession, backed by
+// github.com/aymanbagabas/go-pty.
 package terminal
 
 import (
 	"context"
-	"os"
-	"os/exec"
 	"sync"
 
-	"github.com/creack/pty"
+	xpty "github.com/aymanbagabas/go-pty"
 	"github.com/ysksm/multi-terminals/core/application/port"
 )
 
@@ -21,14 +20,12 @@ type Runner struct {
 	defaultShell string
 }
 
-// NewRunner returns a new Runner. The default shell is taken from the
-// SHELL environment variable; if empty, /bin/sh is used.
+// NewRunner returns a new Runner. The default shell is OS-specific:
+// on Unix it is taken from $SHELL (falling back to /bin/sh); on Windows it
+// is PowerShell (see shell_windows.go). It can always be overridden per
+// request via TerminalStartRequest.Shell.
 func NewRunner() *Runner {
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
-	return &Runner{defaultShell: shell}
+	return &Runner{defaultShell: defaultShell()}
 }
 
 // Start launches a new PTY-backed terminal session for the given request.
@@ -45,30 +42,35 @@ func (r *Runner) Start(ctx context.Context, req port.TerminalStartRequest) (port
 		return nil, err
 	}
 
-	// IMPORTANT: use exec.Command, NOT exec.CommandContext. A terminal session
-	// outlives the request that starts it; its lifetime is controlled solely by
-	// Close() (and Registry.CloseAll() on server shutdown). Binding the process
-	// to the caller's context would kill the shell the moment the originating
-	// HTTP request completes.
-	cmd := exec.Command(shell)
+	ptmx, err := xpty.New()
+	if err != nil {
+		return nil, err
+	}
+
+	// IMPORTANT: use Command, NOT CommandContext. A terminal session outlives
+	// the request that starts it; its lifetime is controlled solely by Close()
+	// (and Registry.CloseAll() on server shutdown). Binding the process to the
+	// caller's context would kill the shell the moment the originating HTTP
+	// request completes.
+	cmd := ptmx.Command(shell)
 	if req.Dir != "" {
 		cmd.Dir = req.Dir
 	}
 
-	f, err := pty.Start(cmd)
-	if err != nil {
+	if err := cmd.Start(); err != nil {
+		_ = ptmx.Close()
 		return nil, err
 	}
 
 	// Set window size if provided.
 	if req.Cols > 0 || req.Rows > 0 {
-		_ = pty.Setsize(f, &pty.Winsize{Cols: req.Cols, Rows: req.Rows})
+		_ = ptmx.Resize(int(req.Cols), int(req.Rows))
 	}
 
 	s := &ptySession{
 		id:        req.SessionID,
 		cmd:       cmd,
-		f:         f,
+		ptmx:      ptmx,
 		out:       make(chan []byte, 256),
 		done:      make(chan struct{}),
 		closeKill: make(chan struct{}),
@@ -81,29 +83,30 @@ func (r *Runner) Start(ctx context.Context, req port.TerminalStartRequest) (port
 	return s, nil
 }
 
-// ptySession implements port.TerminalSession backed by a creack/pty file.
+// ptySession implements port.TerminalSession backed by a go-pty pseudo-terminal
+// (Unix PTY on Unix, ConPTY on Windows).
 type ptySession struct {
-	id  string
-	cmd *exec.Cmd
-	f   *os.File
+	id   string
+	cmd  *xpty.Cmd
+	ptmx xpty.Pty
 
 	out       chan []byte
 	done      chan struct{}
 	closeKill chan struct{} // closed by Close() to signal pump to stop
 
-	writeMu   sync.Mutex // guards f.Write so Close can't race with Write
-	killOnce  sync.Once  // ensures we kill the process and close the PTY exactly once
-	chanOnce  sync.Once  // ensures out and done are closed exactly once (owned by pump)
+	writeMu  sync.Mutex // guards ptmx writes so Close can't race with Write/Resize
+	killOnce sync.Once  // ensures we kill the process and close the PTY exactly once
+	chanOnce sync.Once  // ensures out and done are closed exactly once (owned by pump)
 }
 
-// pump reads from the PTY file and forwards data to the out channel.
-// It terminates when the PTY file returns EOF or an error (which happens
-// after the process exits or after Close() closes the PTY file).
-// It is the sole owner of chanOnce and is responsible for closing out/done.
+// pump reads from the PTY and forwards data to the out channel. It terminates
+// when the PTY returns EOF or an error (which happens after the process exits
+// or after Close() closes the PTY). It is the sole owner of chanOnce and is
+// responsible for closing out/done.
 func (s *ptySession) pump() {
 	buf := make([]byte, 4096)
 	for {
-		n, err := s.f.Read(buf)
+		n, err := s.ptmx.Read(buf)
 		if n > 0 {
 			chunk := make([]byte, n)
 			copy(chunk, buf[:n])
@@ -136,23 +139,23 @@ func (s *ptySession) ID() string {
 func (s *ptySession) Write(data []byte) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	_, err := s.f.Write(data)
+	_, err := s.ptmx.Write(data)
 	return err
 }
 
-// Resize updates the PTY window size.
-// It acquires writeMu (the same lock used by Write and Close) so that it
-// cannot race with a concurrent Close that calls f.Close().
+// Resize updates the PTY window size. It acquires writeMu (the same lock used
+// by Write and Close) so that it cannot race with a concurrent Close that
+// closes the PTY.
 func (s *ptySession) Resize(cols, rows uint16) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	// If the session has already been closed, f is invalid — return early.
+	// If the session has already been closed, the PTY is invalid — return early.
 	select {
 	case <-s.closeKill:
 		return nil
 	default:
 	}
-	return pty.Setsize(s.f, &pty.Winsize{Cols: cols, Rows: rows})
+	return s.ptmx.Resize(int(cols), int(rows))
 }
 
 // Output returns the read-only output channel.
@@ -166,9 +169,9 @@ func (s *ptySession) Done() <-chan struct{} {
 }
 
 // Close terminates the session idempotently. It signals the pump goroutine
-// (via closeKill), kills the process, and closes the PTY file descriptor.
-// The pump goroutine closes the out and done channels after it observes the
-// EOF, so callers should wait on Done() if they need to ensure cleanup.
+// (via closeKill), kills the process, and closes the PTY. The pump goroutine
+// closes the out and done channels after it observes EOF, so callers should
+// wait on Done() if they need to ensure cleanup.
 func (s *ptySession) Close() error {
 	var killErr error
 	s.killOnce.Do(func() {
@@ -180,7 +183,7 @@ func (s *ptySession) Close() error {
 		if s.cmd.Process != nil {
 			killErr = s.cmd.Process.Kill()
 		}
-		_ = s.f.Close()
+		_ = s.ptmx.Close()
 		s.writeMu.Unlock()
 	})
 	return killErr
