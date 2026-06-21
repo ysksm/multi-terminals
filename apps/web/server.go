@@ -34,8 +34,6 @@ type Deps struct {
 	Resize        *command.ResizePaneHandler
 	ClosePane     *command.ClosePaneHandler
 	Registry      *session.Registry
-	// ConnGuard enforces at most one active WebSocket attachment per paneId.
-	ConnGuard *ConnGuard
 }
 
 // NewMux registers all routes and returns the HTTP mux.

@@ -62,6 +62,5 @@ func BuildDeps(baseDir string) (Deps, error) {
 		Resize:        command.NewResizePaneHandler(reg),
 		ClosePane:     command.NewClosePaneHandler(reg),
 		Registry:      reg,
-		ConnGuard:     NewConnGuard(),
 	}, nil
 }
