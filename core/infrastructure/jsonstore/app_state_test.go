@@ -5,7 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ysksm/multi-terminals/core/application/port"
 )
+
+// コンパイル時アサーション: jsonstore.AppStateStore が port.AppStateStore を満たす。
+// infra → application/port は一方向なので循環 import にならない。
+var _ port.AppStateStore = (*AppStateStore)(nil)
 
 func TestAppStateStore_LoadNotExist(t *testing.T) {
 	dir := t.TempDir()

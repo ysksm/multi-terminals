@@ -12,6 +12,7 @@ import (
 // コンパイル時インターフェース適合確認
 var _ port.IDGenerator = (*FakeIDGen)(nil)
 var _ domain.WorkspaceRepository = (*FakeRepo)(nil)
+var _ port.AppStateStore = (*FakeAppStateStore)(nil)
 
 // FakeIDGen は port.IDGenerator のテスト用実装。
 // 事前に登録した固定 ID 列を順に返し、尽きたら連番 "id-N" を生成する。
@@ -89,5 +90,36 @@ func (r *FakeRepo) Delete(_ context.Context, id domain.WorkspaceId) error {
 		return domain.ErrWorkspaceNotFound
 	}
 	delete(r.store, id.String())
+	return nil
+}
+
+// FakeAppStateStore は port.AppStateStore のインメモリ実装（テスト用）。
+type FakeAppStateStore struct {
+	mu                    sync.RWMutex
+	lastOpenedWorkspaceID string
+	hasValue              bool
+}
+
+// NewFakeAppStateStore は空の FakeAppStateStore を返す。
+func NewFakeAppStateStore() *FakeAppStateStore {
+	return &FakeAppStateStore{}
+}
+
+// Load はインメモリの状態を返す。値が未設定なら ("", false, nil) を返す。
+func (s *FakeAppStateStore) Load(_ context.Context) (workspaceID string, ok bool, err error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.hasValue || s.lastOpenedWorkspaceID == "" {
+		return "", false, nil
+	}
+	return s.lastOpenedWorkspaceID, true, nil
+}
+
+// SetLastOpened は workspaceID をインメモリに記録する。空文字は ok=false として扱われる。
+func (s *FakeAppStateStore) SetLastOpened(_ context.Context, workspaceID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastOpenedWorkspaceID = workspaceID
+	s.hasValue = true
 	return nil
 }
