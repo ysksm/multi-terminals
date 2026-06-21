@@ -12,9 +12,14 @@
 #   build    全パッケージをビルド
 #   check    build + vet + test をまとめて実行（CI 相当）
 #   watch    .go の変更を監視し、保存のたびに test を自動再実行（TDD ループ）
-#   web      Web アダプタを起動（apps/web が存在する場合）
+#   web      Web アダプタ(Go バックエンド)を起動（apps/web/cmd）
+#   frontend Svelte+Vite の開発サーバを起動（frontend/。/api を web へプロキシ）
 #   wails    Wails アプリを開発モードで起動（apps/wails が存在する場合）
 #   help     このヘルプを表示
+#
+# ブラウザで使うには 2 つ起動する:
+#   端末1: scripts/dev.sh web        # Go バックエンド (:8080)
+#   端末2: scripts/dev.sh frontend   # Vite dev (:5173) → http://localhost:5173
 #
 set -euo pipefail
 
@@ -101,6 +106,19 @@ cmd_web() {
   go run ./apps/web/cmd "$@"
 }
 
+cmd_frontend() {
+  if [ ! -d "frontend" ]; then
+    echo "frontend はまだ存在しません。" >&2
+    exit 1
+  fi
+  if [ ! -d "frontend/node_modules" ]; then
+    echo ">> (cd frontend && npm install)"
+    (cd frontend && npm install)
+  fi
+  echo ">> (cd frontend && npm run dev)"
+  (cd frontend && npm run dev "$@")
+}
+
 cmd_wails() {
   if [ ! -d "apps/wails" ]; then
     echo "apps/wails はまだ存在しません（Wails アプリは今後の実装計画です）。" >&2
@@ -131,6 +149,7 @@ main() {
     check) cmd_check "$@" ;;
     watch) cmd_watch "$@" ;;
     web)   cmd_web "$@" ;;
+    frontend) cmd_frontend "$@" ;;
     wails) cmd_wails "$@" ;;
     help|-h|--help) cmd_help ;;
     *)
