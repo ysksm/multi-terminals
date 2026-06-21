@@ -1,0 +1,54 @@
+// Go バックエンドの REST API クライアント。Vite プロキシ経由で同一オリジン（/api）。
+
+async function req(method, path, body) {
+  const opts = { method, headers: {} }
+  if (body !== undefined) {
+    opts.headers['Content-Type'] = 'application/json'
+    opts.body = JSON.stringify(body)
+  }
+  const res = await fetch(path, opts)
+  if (!res.ok) {
+    let detail = ''
+    try {
+      const j = await res.json()
+      detail = j.error || ''
+    } catch {
+      // ignore
+    }
+    throw new Error(`${method} ${path} -> ${res.status}${detail ? ': ' + detail : ''}`)
+  }
+  if (res.status === 204) return null
+  const text = await res.text()
+  return text ? JSON.parse(text) : null
+}
+
+export const api = {
+  listWorkspaces: () => req('GET', '/api/workspaces'),
+  createWorkspace: (name, layout) => req('POST', '/api/workspaces', { name, layout }),
+  getWorkspace: (id) => req('GET', `/api/workspaces/${id}`),
+  patchWorkspace: (id, patch) => req('PATCH', `/api/workspaces/${id}`, patch),
+  maximizePane: (id, paneId) => req('POST', `/api/workspaces/${id}/maximize`, { paneId }),
+  restoreLayout: (id) => req('POST', `/api/workspaces/${id}/restore`),
+  setActivePane: (id, paneId) => req('POST', `/api/workspaces/${id}/active-pane`, { paneId }),
+  lastOpened: () => req('GET', '/api/last-opened'),
+  addPane: (id, directory, slot, commands) =>
+    req('POST', `/api/workspaces/${id}/panes`, { directory, slot, commands }),
+  removePane: (id, paneId) => req('DELETE', `/api/workspaces/${id}/panes/${paneId}`),
+  setPaneDirectory: (id, paneId, directory) =>
+    req('PUT', `/api/workspaces/${id}/panes/${paneId}/directory`, { directory }),
+  setPaneCommands: (id, paneId, commands) =>
+    req('PUT', `/api/workspaces/${id}/panes/${paneId}/commands`, { commands }),
+  open: (id) => req('POST', `/api/workspaces/${id}/open`),
+}
+
+// レイアウトプリセットの定義（バックエンドの値と一致させる）。
+export const LAYOUTS = [
+  { value: 'single', label: '1画面', capacity: 1, cols: 1, rows: 1 },
+  { value: 'split_vertical', label: '左右2分割', capacity: 2, cols: 2, rows: 1 },
+  { value: 'split_horizontal', label: '上下2分割', capacity: 2, cols: 1, rows: 2 },
+  { value: 'grid_2x2', label: '4分割', capacity: 4, cols: 2, rows: 2 },
+]
+
+export function layoutOf(value) {
+  return LAYOUTS.find((l) => l.value === value) || LAYOUTS[0]
+}
