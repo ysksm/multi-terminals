@@ -1,0 +1,12 @@
+# Go ビルド・テスト成果物
+coverage.out
+coverage.html
+*.test
+*.out
+
+# バイナリ出力
+/bin/
+/build/
+
+# OS / エディタ
+.DS_Store
