@@ -63,6 +63,9 @@ func NewMux(d Deps) *http.ServeMux {
 	// Global queries
 	mux.HandleFunc("GET /api/last-opened", d.handleGetLastOpened)
 
+	// WebSocket pane I/O
+	mux.HandleFunc("GET /api/panes/{paneId}/io", d.handlePaneIO)
+
 	return mux
 }
 

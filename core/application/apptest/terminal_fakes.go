@@ -68,6 +68,13 @@ func (s *FakeTerminalSession) Resize(cols, rows uint16) error {
 	return nil
 }
 
+// LastSize returns the last recorded resize values in a concurrency-safe manner.
+func (s *FakeTerminalSession) LastSize() (cols, rows uint16) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.LastCols, s.LastRows
+}
+
 // Output returns the output channel. It is closed when Close is called.
 func (s *FakeTerminalSession) Output() <-chan []byte {
 	return s.out
