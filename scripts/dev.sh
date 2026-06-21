@@ -11,6 +11,7 @@
 #   vet      go vet を実行
 #   build    全パッケージをビルド
 #   check    build + vet + test をまとめて実行（CI 相当）
+#   watch    .go の変更を監視し、保存のたびに test を自動再実行（TDD ループ）
 #   web      Web アダプタを起動（apps/web が存在する場合）
 #   wails    Wails アプリを開発モードで起動（apps/wails が存在する場合）
 #   help     このヘルプを表示
@@ -57,6 +58,40 @@ cmd_check() {
   echo ">> check: OK"
 }
 
+cmd_watch() {
+  echo ">> watch: .go の変更を監視してテストを自動再実行します（Ctrl-C で終了）"
+  # fswatch があればイベント駆動、なければ mtime ポーリングにフォールバック
+  if command -v fswatch >/dev/null 2>&1; then
+    echo "   (fswatch を使用)"
+    _watch_run_once
+    # .go 変更時のみ再実行
+    fswatch -o -e '.*' -i '\.go$' . | while read -r _; do
+      _watch_run_once
+    done
+  else
+    echo "   (fswatch 未導入のため2秒ポーリングを使用。'brew install fswatch' で高速化できます)"
+    local last="" snap
+    while true; do
+      # 全 .go ファイルの mtime 一覧のハッシュを取り、初回または変化時に再実行
+      snap="$(find . -name '*.go' -not -path './.git/*' -exec stat -f '%m %N' {} \; 2>/dev/null | sort | shasum | cut -d' ' -f1)"
+      if [ "$snap" != "$last" ]; then
+        last="$snap"
+        _watch_run_once
+      fi
+      sleep 2
+    done
+  fi
+}
+
+_watch_run_once() {
+  printf '\n----- %s test 実行 -----\n' "$(date '+%H:%M:%S')"
+  if go test ./...; then
+    printf '✅ PASS\n'
+  else
+    printf '❌ FAIL\n'
+  fi
+}
+
 cmd_web() {
   if [ ! -d "apps/web" ]; then
     echo "apps/web はまだ存在しません（Web アダプタは今後の実装計画です）。" >&2
@@ -94,6 +129,7 @@ main() {
     vet)   cmd_vet "$@" ;;
     build) cmd_build "$@" ;;
     check) cmd_check "$@" ;;
+    watch) cmd_watch "$@" ;;
     web)   cmd_web "$@" ;;
     wails) cmd_wails "$@" ;;
     help|-h|--help) cmd_help ;;
