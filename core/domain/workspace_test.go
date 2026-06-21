@@ -235,3 +235,19 @@ func TestRemovePaneClearsActiveAndMaximized(t *testing.T) {
 		t.Error("removing maximized pane should clear maximized")
 	}
 }
+
+func TestWorkspaceChangeLayoutRejectsPaneSlotOutOfRange(t *testing.T) {
+	w := newTestWorkspace(t, LayoutSplitVertical)
+	// place a pane in slot 1 (valid for SplitVertical capacity 2)
+	if err := w.AddPane(newPaneAt(t, "p1", 1)); err != nil {
+		t.Fatalf("AddPane: %v", err)
+	}
+	// shrinking to Single (capacity 1) must reject: pane sits at slot 1 >= 1
+	if err := w.ChangeLayout(LayoutSingle); err == nil {
+		t.Error("ChangeLayout to smaller layout with an out-of-range pane slot should error")
+	}
+	// layout must be unchanged after the rejected change
+	if w.Layout() != LayoutSplitVertical {
+		t.Errorf("Layout should remain SplitVertical after rejected ChangeLayout, got %q", w.Layout())
+	}
+}

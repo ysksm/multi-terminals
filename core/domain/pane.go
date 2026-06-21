@@ -3,6 +3,8 @@ package domain
 import "errors"
 
 // Pane はワークスペース内の 1 つのターミナル枠を表すエンティティ。
+// 状態変更メソッド（setDirectory / setCommands）は意図的に非公開であり、
+// Workspace 集約の境界はこれに依存する。公開ミューテータを追加してはならない。
 type Pane struct {
 	id        PaneId
 	directory DirectoryPath
