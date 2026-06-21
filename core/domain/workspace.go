@@ -64,3 +64,68 @@ func (w *Workspace) findPane(id PaneId) *Pane {
 	}
 	return nil
 }
+
+// AddPane は pane を追加する。容量超過・slot 範囲外・slot/id 重複はエラー。
+func (w *Workspace) AddPane(p *Pane) error {
+	if p == nil {
+		return errors.New("pane must not be nil")
+	}
+	if len(w.panes) >= w.layout.Capacity() {
+		return fmt.Errorf("cannot add pane: layout capacity %d reached", w.layout.Capacity())
+	}
+	if p.slot.Int() >= w.layout.Capacity() {
+		return fmt.Errorf("pane slot %d out of range for layout capacity %d", p.slot.Int(), w.layout.Capacity())
+	}
+	for _, existing := range w.panes {
+		if existing.id.Equals(p.id) {
+			return fmt.Errorf("pane id %s already exists", p.id)
+		}
+		if existing.slot.Equals(p.slot) {
+			return fmt.Errorf("slot %d already occupied", p.slot.Int())
+		}
+	}
+	w.panes = append(w.panes, p)
+	return nil
+}
+
+// RemovePane は pane を削除する。lastActive / maximized が指していたら解除する。
+func (w *Workspace) RemovePane(id PaneId) error {
+	idx := -1
+	for i, p := range w.panes {
+		if p.id.Equals(id) {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return fmt.Errorf("pane %s not found", id)
+	}
+	w.panes = append(w.panes[:idx], w.panes[idx+1:]...)
+	if w.lastActive != nil && w.lastActive.Equals(id) {
+		w.lastActive = nil
+	}
+	if w.maximized != nil && w.maximized.Equals(id) {
+		w.maximized = nil
+	}
+	return nil
+}
+
+// SetPaneDirectory は指定 pane の作業ディレクトリを変更する。
+func (w *Workspace) SetPaneDirectory(id PaneId, dir DirectoryPath) error {
+	p := w.findPane(id)
+	if p == nil {
+		return fmt.Errorf("pane %s not found", id)
+	}
+	p.setDirectory(dir)
+	return nil
+}
+
+// SetPaneStartupCommands は指定 pane の起動コマンド列を置き換える。
+func (w *Workspace) SetPaneStartupCommands(id PaneId, commands []StartupCommand) error {
+	p := w.findPane(id)
+	if p == nil {
+		return fmt.Errorf("pane %s not found", id)
+	}
+	p.setCommands(commands)
+	return nil
+}
