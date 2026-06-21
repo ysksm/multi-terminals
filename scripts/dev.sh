@@ -9,8 +9,9 @@
 #   test     全パッケージのテストを実行
 #   cover    カバレッジ付きでテストを実行（coverage.out を生成）
 #   vet      go vet を実行
-#   build    全パッケージをビルド
-#   check    build + vet + test をまとめて実行（CI 相当）
+#   build    フロントを組み込んだ単一バイナリ bin/multi-terminals を生成
+#   start    ビルド済みバイナリ bin/multi-terminals を起動（:8080 で UI も配信）
+#   check    go build(コンパイル確認) + vet + test（CI 相当）
 #   watch    .go の変更を監視し、保存のたびに test を自動再実行（TDD ループ）
 #   web      Web アダプタ(Go バックエンド)を起動（apps/web/cmd）
 #   frontend Svelte+Vite の開発サーバを起動（frontend/。/api を web へプロキシ）
@@ -51,13 +52,47 @@ cmd_vet() {
   go vet ./...
 }
 
+BIN="bin/multi-terminals"
+
 cmd_build() {
-  echo ">> go build ./..."
-  go build ./...
+  # フロントエンドを本番ビルドし、サーバーバイナリに組み込んで単一の成果物を生成する。
+  if [ -d "frontend" ]; then
+    if [ ! -d "frontend/node_modules" ]; then
+      echo ">> (cd frontend && npm install)"
+      (cd frontend && npm install)
+    fi
+    echo ">> (cd frontend && npm run build)"
+    (cd frontend && npm run build)
+    # ビルド成果物を埋め込みディレクトリへコピー（.gitkeep は維持）
+    echo ">> embed frontend/dist -> apps/web/webui/dist"
+    rm -rf apps/web/webui/dist
+    mkdir -p apps/web/webui/dist
+    touch apps/web/webui/dist/.gitkeep
+    cp -R frontend/dist/. apps/web/webui/dist/
+  else
+    echo ">> frontend なし: UI 非組み込みでビルドします"
+  fi
+  echo ">> go build -o $BIN ./apps/web/cmd"
+  mkdir -p bin
+  go build -o "$BIN" ./apps/web/cmd
+  echo ""
+  echo "✅ 生成物: $ROOT/$BIN （UI 組み込みの単一バイナリ）"
+  echo "   起動:   ./scripts/dev.sh start   または   ./$BIN"
+  echo "   開いて: http://localhost:8080"
+}
+
+cmd_start() {
+  if [ ! -x "$BIN" ]; then
+    echo "$BIN がありません。先に ./scripts/dev.sh build を実行してください。" >&2
+    exit 1
+  fi
+  echo ">> $BIN"
+  exec "./$BIN" "$@"
 }
 
 cmd_check() {
-  cmd_build
+  echo ">> go build ./..."
+  go build ./...
   cmd_vet
   cmd_test
   echo ">> check: OK"
@@ -147,6 +182,7 @@ main() {
     vet)   cmd_vet "$@" ;;
     build) cmd_build "$@" ;;
     check) cmd_check "$@" ;;
+    start) cmd_start "$@" ;;
     watch) cmd_watch "$@" ;;
     web)   cmd_web "$@" ;;
     frontend) cmd_frontend "$@" ;;

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ysksm/multi-terminals/apps/web"
+	"github.com/ysksm/multi-terminals/apps/web/webui"
 	"github.com/ysksm/multi-terminals/core/infrastructure/jsonstore"
 )
 
@@ -32,8 +33,17 @@ func main() {
 
 	mux := web.NewMux(deps)
 
+	// Serve the embedded frontend (if built into the binary) for all non-/api
+	// routes. The "/api/..." patterns registered by NewMux are more specific and
+	// take precedence over this root catch-all.
+	mux.Handle("/", webui.Handler())
+
 	addr := ":" + portFromEnv("8080")
-	fmt.Printf("multi-terminals: listening on %s (baseDir=%s)\n", addr, baseDir)
+	ui := "embedded UI"
+	if !webui.IsBuilt() {
+		ui = "API only (frontend not embedded — run scripts/dev.sh build, or use the Vite dev server)"
+	}
+	fmt.Printf("multi-terminals: listening on %s (baseDir=%s, %s)\n", addr, baseDir, ui)
 
 	srv := &http.Server{Addr: addr, Handler: mux}
 

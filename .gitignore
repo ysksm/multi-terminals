@@ -8,5 +8,9 @@ coverage.html
 /bin/
 /build/
 
+# 埋め込み用フロントエンドビルド成果物（.gitkeep のみ追跡）
+/apps/web/webui/dist/*
+!/apps/web/webui/dist/.gitkeep
+
 # OS / エディタ
 .DS_Store
