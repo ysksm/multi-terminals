@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/application/port"
 	"github.com/ysksm/multi-terminals/core/domain"
 )
@@ -35,18 +36,18 @@ func (h *CreateWorkspaceHandler) Handle(ctx context.Context, cmd CreateWorkspace
 	rawID := h.idgen.NewID()
 	id, err := domain.NewWorkspaceId(rawID)
 	if err != nil {
-		return CreateWorkspaceResult{}, fmt.Errorf("create workspace: invalid id: %w", err)
+		return CreateWorkspaceResult{}, apperr.Validation(fmt.Errorf("create workspace: invalid id: %w", err))
 	}
 
 	name, err := domain.NewWorkspaceName(cmd.Name)
 	if err != nil {
-		return CreateWorkspaceResult{}, fmt.Errorf("create workspace: invalid name: %w", err)
+		return CreateWorkspaceResult{}, apperr.Validation(fmt.Errorf("create workspace: invalid name: %w", err))
 	}
 
 	layout := domain.LayoutPreset(cmd.Layout)
 	w, err := domain.NewWorkspace(id, name, layout)
 	if err != nil {
-		return CreateWorkspaceResult{}, fmt.Errorf("create workspace: %w", err)
+		return CreateWorkspaceResult{}, apperr.Validation(fmt.Errorf("create workspace: %w", err))
 	}
 
 	if err := h.repo.Save(ctx, w); err != nil {

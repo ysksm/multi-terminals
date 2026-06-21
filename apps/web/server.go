@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/application/command"
 	"github.com/ysksm/multi-terminals/core/application/query"
 	"github.com/ysksm/multi-terminals/core/application/session"
@@ -89,52 +90,17 @@ func readJSON(r *http.Request, v interface{}) error {
 
 // mapErr maps domain/application errors to HTTP status codes and writes a JSON error body.
 func mapErr(w http.ResponseWriter, err error) {
-	status := http.StatusInternalServerError
+	var ve *apperr.ValidationError
 	switch {
 	case errors.Is(err, domain.ErrWorkspaceNotFound):
-		status = http.StatusNotFound
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 	case errors.Is(err, command.ErrSessionNotFound):
-		status = http.StatusNotFound
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+	case errors.As(err, &ve):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 	default:
-		// validation / VO errors tend to be 400; detect by checking if
-		// the error string contains known sentinel patterns — heuristic
-		// for value-object validation failures that return plain errors.
-		msg := err.Error()
-		if isValidationError(msg) {
-			status = http.StatusBadRequest
-		} else if isNotFoundError(msg) {
-			status = http.StatusNotFound
-		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
-	writeJSON(w, status, map[string]string{"error": err.Error()})
-}
-
-// isValidationError returns true for errors that should map to HTTP 400.
-// This is a heuristic that covers VO validation errors from the domain layer.
-func isValidationError(msg string) bool {
-	prefixes := []string{
-		"invalid", "workspace name", "layout", "directory", "slot", "pane id", "workspace id",
-	}
-	lower := errors.New(msg).Error()
-	for _, p := range prefixes {
-		if len(lower) >= len(p) && lower[:len(p)] == p {
-			return true
-		}
-	}
-	return false
-}
-
-// isNotFoundError returns true for errors that should map to HTTP 404.
-// It detects "not found" suffix patterns from domain pane/entity errors
-// that are not covered by sentinel errors.
-func isNotFoundError(msg string) bool {
-	suffixes := []string{"not found"}
-	for _, s := range suffixes {
-		if len(msg) >= len(s) && msg[len(msg)-len(s):] == s {
-			return true
-		}
-	}
-	return false
 }
 
 // ---- Workspace handlers ----

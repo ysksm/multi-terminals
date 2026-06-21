@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/domain"
 )
 
@@ -26,7 +27,7 @@ func NewRestoreLayoutHandler(repo domain.WorkspaceRepository) *RestoreLayoutHand
 func (h *RestoreLayoutHandler) Handle(ctx context.Context, cmd RestoreLayoutCommand) error {
 	wsID, err := domain.NewWorkspaceId(cmd.WorkspaceID)
 	if err != nil {
-		return fmt.Errorf("restore layout: invalid workspace id: %w", err)
+		return apperr.Validation(fmt.Errorf("restore layout: invalid workspace id: %w", err))
 	}
 
 	w, err := h.repo.FindByID(ctx, wsID)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/application/port"
 	"github.com/ysksm/multi-terminals/core/application/session"
 	"github.com/ysksm/multi-terminals/core/domain"
@@ -65,7 +66,7 @@ func NewOpenWorkspaceHandler(
 func (h *OpenWorkspaceHandler) Handle(ctx context.Context, cmd OpenWorkspaceCommand) (OpenWorkspaceResult, error) {
 	wsID, err := domain.NewWorkspaceId(cmd.WorkspaceID)
 	if err != nil {
-		return OpenWorkspaceResult{}, fmt.Errorf("open workspace: invalid workspace id: %w", err)
+		return OpenWorkspaceResult{}, apperr.Validation(fmt.Errorf("open workspace: invalid workspace id: %w", err))
 	}
 
 	w, err := h.repo.FindByID(ctx, wsID)

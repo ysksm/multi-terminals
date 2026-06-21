@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/domain"
 )
 
@@ -27,7 +28,7 @@ func NewChangeLayoutHandler(repo domain.WorkspaceRepository) *ChangeLayoutHandle
 func (h *ChangeLayoutHandler) Handle(ctx context.Context, cmd ChangeLayoutCommand) error {
 	id, err := domain.NewWorkspaceId(cmd.WorkspaceID)
 	if err != nil {
-		return fmt.Errorf("change layout: invalid id: %w", err)
+		return apperr.Validation(fmt.Errorf("change layout: invalid id: %w", err))
 	}
 
 	w, err := h.repo.FindByID(ctx, id)
@@ -36,7 +37,7 @@ func (h *ChangeLayoutHandler) Handle(ctx context.Context, cmd ChangeLayoutComman
 	}
 
 	if err := w.ChangeLayout(domain.LayoutPreset(cmd.Layout)); err != nil {
-		return fmt.Errorf("change layout: %w", err)
+		return apperr.Validation(fmt.Errorf("change layout: %w", err))
 	}
 
 	if err := h.repo.Save(ctx, w); err != nil {

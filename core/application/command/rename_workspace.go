@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/domain"
 )
 
@@ -27,7 +28,7 @@ func NewRenameWorkspaceHandler(repo domain.WorkspaceRepository) *RenameWorkspace
 func (h *RenameWorkspaceHandler) Handle(ctx context.Context, cmd RenameWorkspaceCommand) error {
 	id, err := domain.NewWorkspaceId(cmd.WorkspaceID)
 	if err != nil {
-		return fmt.Errorf("rename workspace: invalid id: %w", err)
+		return apperr.Validation(fmt.Errorf("rename workspace: invalid id: %w", err))
 	}
 
 	w, err := h.repo.FindByID(ctx, id)
@@ -37,7 +38,7 @@ func (h *RenameWorkspaceHandler) Handle(ctx context.Context, cmd RenameWorkspace
 
 	name, err := domain.NewWorkspaceName(cmd.Name)
 	if err != nil {
-		return fmt.Errorf("rename workspace: invalid name: %w", err)
+		return apperr.Validation(fmt.Errorf("rename workspace: invalid name: %w", err))
 	}
 
 	w.Rename(name)

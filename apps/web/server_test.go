@@ -119,7 +119,7 @@ func TestCreateThenGetWorkspace(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&createResp)
 	id := createResp["id"]
 
-	// Get — WorkspaceDTO fields are Title-cased (no json tags in the DTO struct)
+	// Get — WorkspaceDTO fields are lower-camelCase (explicit json tags on DTO struct)
 	w2 := doRequest(mux, http.MethodGet, "/api/workspaces/"+id, "")
 	if w2.Code != http.StatusOK {
 		t.Fatalf("get: expected 200, got %d: %s", w2.Code, w2.Body.String())
@@ -128,11 +128,11 @@ func TestCreateThenGetWorkspace(t *testing.T) {
 	if err := json.NewDecoder(w2.Body).Decode(&dto); err != nil {
 		t.Fatalf("decode get resp: %v", err)
 	}
-	if dto["ID"] != id {
-		t.Fatalf("expected ID %q, got %v", id, dto["ID"])
+	if dto["id"] != id {
+		t.Fatalf("expected id %q, got %v", id, dto["id"])
 	}
-	if dto["Name"] != "Test WS" {
-		t.Fatalf("expected Name 'Test WS', got %v", dto["Name"])
+	if dto["name"] != "Test WS" {
+		t.Fatalf("expected name 'Test WS', got %v", dto["name"])
 	}
 }
 
@@ -178,12 +178,12 @@ func TestPatchWorkspaceRename(t *testing.T) {
 		t.Fatalf("patch: expected 204, got %d: %s", w2.Code, w2.Body.String())
 	}
 
-	// Get and verify — field is "Name" (Title-cased)
+	// Get and verify — field is "name" (lower-camelCase json tag)
 	w3 := doRequest(mux, http.MethodGet, "/api/workspaces/"+id, "")
 	var dto map[string]interface{}
 	json.NewDecoder(w3.Body).Decode(&dto)
-	if dto["Name"] != "NewName" {
-		t.Fatalf("expected renamed to 'NewName', got %v", dto["Name"])
+	if dto["name"] != "NewName" {
+		t.Fatalf("expected renamed to 'NewName', got %v", dto["name"])
 	}
 }
 
@@ -299,13 +299,13 @@ func TestGetLastOpenedAfterOpen(t *testing.T) {
 	if found, _ := resp["found"].(bool); !found {
 		t.Fatalf("expected found=true, got %v", resp)
 	}
-	// workspace field contains WorkspaceDTO with Title-cased fields
+	// workspace field contains WorkspaceDTO with lower-camelCase fields
 	ws, _ := resp["workspace"].(map[string]interface{})
 	if ws == nil {
 		t.Fatalf("expected workspace in response, got %v", resp)
 	}
-	if ws["ID"] != id {
-		t.Fatalf("expected workspace.ID=%q, got %v", id, ws["ID"])
+	if ws["id"] != id {
+		t.Fatalf("expected workspace.id=%q, got %v", id, ws["id"])
 	}
 }
 
@@ -384,21 +384,21 @@ func TestAddPaneReflectedInGet(t *testing.T) {
 		t.Fatalf("expected non-empty paneId, got %v", addResp)
 	}
 
-	// GET workspace — pane should appear in Panes list
+	// GET workspace — pane should appear in panes list
 	getW := doRequest(mux, http.MethodGet, "/api/workspaces/"+id, "")
 	if getW.Code != http.StatusOK {
 		t.Fatalf("get workspace: expected 200, got %d: %s", getW.Code, getW.Body.String())
 	}
 	var dto map[string]interface{}
 	json.NewDecoder(getW.Body).Decode(&dto)
-	panes, ok := dto["Panes"].([]interface{})
+	panes, ok := dto["panes"].([]interface{})
 	if !ok || len(panes) == 0 {
 		t.Fatalf("expected panes in workspace DTO, got %v", dto)
 	}
 	found := false
 	for _, p := range panes {
 		pm, _ := p.(map[string]interface{})
-		if pm["ID"] == paneID {
+		if pm["id"] == paneID {
 			found = true
 		}
 	}
@@ -430,17 +430,17 @@ func TestRemovePaneReflectedInGet(t *testing.T) {
 		t.Fatalf("remove pane: expected 204, got %d: %s", removeW.Code, removeW.Body.String())
 	}
 
-	// GET workspace — pane should be gone from Panes list
+	// GET workspace — pane should be gone from panes list
 	getW := doRequest(mux, http.MethodGet, "/api/workspaces/"+id, "")
 	if getW.Code != http.StatusOK {
 		t.Fatalf("get workspace: expected 200, got %d: %s", getW.Code, getW.Body.String())
 	}
 	var dto map[string]interface{}
 	json.NewDecoder(getW.Body).Decode(&dto)
-	panes, _ := dto["Panes"].([]interface{})
+	panes, _ := dto["panes"].([]interface{})
 	for _, p := range panes {
 		pm, _ := p.(map[string]interface{})
-		if pm["ID"] == paneID {
+		if pm["id"] == paneID {
 			t.Fatalf("pane %q still present after removal", paneID)
 		}
 	}
@@ -474,14 +474,14 @@ func TestSetPaneDirectoryReflectedInGet(t *testing.T) {
 	getW := doRequest(mux, http.MethodGet, "/api/workspaces/"+id, "")
 	var dto map[string]interface{}
 	json.NewDecoder(getW.Body).Decode(&dto)
-	panes, _ := dto["Panes"].([]interface{})
+	panes, _ := dto["panes"].([]interface{})
 	found := false
 	for _, p := range panes {
 		pm, _ := p.(map[string]interface{})
-		if pm["ID"] == paneID {
+		if pm["id"] == paneID {
 			found = true
-			if pm["Directory"] != "/var/log" {
-				t.Fatalf("expected directory '/var/log', got %v", pm["Directory"])
+			if pm["directory"] != "/var/log" {
+				t.Fatalf("expected directory '/var/log', got %v", pm["directory"])
 			}
 		}
 	}
@@ -518,22 +518,22 @@ func TestSetPaneCommandsReflectedInGet(t *testing.T) {
 	getW := doRequest(mux, http.MethodGet, "/api/workspaces/"+id, "")
 	var dto map[string]interface{}
 	json.NewDecoder(getW.Body).Decode(&dto)
-	panes, _ := dto["Panes"].([]interface{})
+	panes, _ := dto["panes"].([]interface{})
 	found := false
 	for _, p := range panes {
 		pm, _ := p.(map[string]interface{})
-		if pm["ID"] == paneID {
+		if pm["id"] == paneID {
 			found = true
-			cmds, _ := pm["Commands"].([]interface{})
+			cmds, _ := pm["commands"].([]interface{})
 			if len(cmds) != 1 {
 				t.Fatalf("expected 1 command, got %d", len(cmds))
 			}
 			cm, _ := cmds[0].(map[string]interface{})
-			if cm["Command"] != "echo hello" {
-				t.Fatalf("expected command 'echo hello', got %v", cm["Command"])
+			if cm["command"] != "echo hello" {
+				t.Fatalf("expected command 'echo hello', got %v", cm["command"])
 			}
-			if ar, _ := cm["AutoRun"].(bool); !ar {
-				t.Fatalf("expected autoRun=true, got %v", cm["AutoRun"])
+			if ar, _ := cm["autoRun"].(bool); !ar {
+				t.Fatalf("expected autoRun=true, got %v", cm["autoRun"])
 			}
 		}
 	}
@@ -558,7 +558,7 @@ func TestAddPaneInvalidBody400(t *testing.T) {
 	}
 }
 
-func TestRemovePaneNonexistent404(t *testing.T) {
+func TestRemovePaneNonexistent400(t *testing.T) {
 	mux := web.NewMux(buildTestDeps(t))
 
 	// Create workspace
@@ -567,10 +567,10 @@ func TestRemovePaneNonexistent404(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&cr)
 	id := cr["id"]
 
-	// Remove non-existent pane from existing workspace
+	// Remove non-existent pane from existing workspace — pane-not-found is a client error (400)
 	removeW := doRequest(mux, http.MethodDelete, "/api/workspaces/"+id+"/panes/nonexistent-pane", "")
-	if removeW.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 for nonexistent pane, got %d: %s", removeW.Code, removeW.Body.String())
+	if removeW.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for nonexistent pane, got %d: %s", removeW.Code, removeW.Body.String())
 	}
 }
 
@@ -644,4 +644,57 @@ func TestContextPassThrough(t *testing.T) {
 	w := httptest.NewRecorder()
 	// Should not panic - handler gracefully uses request context
 	mux.ServeHTTP(w, req)
+}
+
+// TestCreateWorkspaceEmptyName400 verifies that an empty workspace name returns 400.
+func TestCreateWorkspaceEmptyName400(t *testing.T) {
+	mux := web.NewMux(buildTestDeps(t))
+	w := doRequest(mux, http.MethodPost, "/api/workspaces", `{"name":"","layout":"single"}`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty name, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestSetPaneDirectoryEmptyDir400 verifies that setting an empty directory returns 400.
+func TestSetPaneDirectoryEmptyDir400(t *testing.T) {
+	deps := buildTestDeps(t)
+	mux := web.NewMux(deps)
+
+	// Create workspace + add pane
+	w := doRequest(mux, http.MethodPost, "/api/workspaces", `{"name":"WS","layout":"single"}`)
+	var cr map[string]string
+	json.NewDecoder(w.Body).Decode(&cr)
+	id := cr["id"]
+
+	addW := doRequest(mux, http.MethodPost, "/api/workspaces/"+id+"/panes",
+		`{"directory":"/tmp","slot":0,"commands":[]}`)
+	var addResp map[string]string
+	json.NewDecoder(addW.Body).Decode(&addResp)
+	paneID := addResp["paneId"]
+
+	// Set empty directory — should be 400
+	setW := doRequest(mux, http.MethodPut,
+		"/api/workspaces/"+id+"/panes/"+paneID+"/directory",
+		`{"directory":""}`)
+	if setW.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty directory, got %d: %s", setW.Code, setW.Body.String())
+	}
+}
+
+// TestGetWorkspaceNotFound404 verifies that fetching a nonexistent workspace returns 404.
+func TestGetWorkspaceNotFound404(t *testing.T) {
+	mux := web.NewMux(buildTestDeps(t))
+	w := doRequest(mux, http.MethodGet, "/api/workspaces/does-not-exist", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for nonexistent workspace, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCreateWorkspaceMalformedJSON400 verifies that a malformed JSON body returns 400.
+func TestCreateWorkspaceMalformedJSON400(t *testing.T) {
+	mux := web.NewMux(buildTestDeps(t))
+	w := doRequest(mux, http.MethodPost, "/api/workspaces", `{not valid json`)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for malformed JSON, got %d: %s", w.Code, w.Body.String())
+	}
 }

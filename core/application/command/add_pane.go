@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/application/port"
 	"github.com/ysksm/multi-terminals/core/domain"
 )
@@ -42,7 +43,7 @@ func NewAddPaneHandler(repo domain.WorkspaceRepository, idgen port.IDGenerator) 
 func (h *AddPaneHandler) Handle(ctx context.Context, cmd AddPaneCommand) (AddPaneResult, error) {
 	wsID, err := domain.NewWorkspaceId(cmd.WorkspaceID)
 	if err != nil {
-		return AddPaneResult{}, fmt.Errorf("add pane: invalid workspace id: %w", err)
+		return AddPaneResult{}, apperr.Validation(fmt.Errorf("add pane: invalid workspace id: %w", err))
 	}
 
 	w, err := h.repo.FindByID(ctx, wsID)
@@ -53,35 +54,35 @@ func (h *AddPaneHandler) Handle(ctx context.Context, cmd AddPaneCommand) (AddPan
 	rawPaneID := h.idgen.NewID()
 	paneID, err := domain.NewPaneId(rawPaneID)
 	if err != nil {
-		return AddPaneResult{}, fmt.Errorf("add pane: invalid pane id: %w", err)
+		return AddPaneResult{}, apperr.Validation(fmt.Errorf("add pane: invalid pane id: %w", err))
 	}
 
 	dir, err := domain.NewDirectoryPath(cmd.Directory)
 	if err != nil {
-		return AddPaneResult{}, fmt.Errorf("add pane: invalid directory: %w", err)
+		return AddPaneResult{}, apperr.Validation(fmt.Errorf("add pane: invalid directory: %w", err))
 	}
 
 	slot, err := domain.NewSlotIndex(cmd.Slot)
 	if err != nil {
-		return AddPaneResult{}, fmt.Errorf("add pane: invalid slot: %w", err)
+		return AddPaneResult{}, apperr.Validation(fmt.Errorf("add pane: invalid slot: %w", err))
 	}
 
 	startupCmds := make([]domain.StartupCommand, 0, len(cmd.Commands))
 	for _, c := range cmd.Commands {
 		sc, err := domain.NewStartupCommand(c.Command, c.AutoRun)
 		if err != nil {
-			return AddPaneResult{}, fmt.Errorf("add pane: invalid startup command: %w", err)
+			return AddPaneResult{}, apperr.Validation(fmt.Errorf("add pane: invalid startup command: %w", err))
 		}
 		startupCmds = append(startupCmds, sc)
 	}
 
 	pane, err := domain.NewPane(paneID, dir, slot, startupCmds)
 	if err != nil {
-		return AddPaneResult{}, fmt.Errorf("add pane: create pane: %w", err)
+		return AddPaneResult{}, apperr.Validation(fmt.Errorf("add pane: create pane: %w", err))
 	}
 
 	if err := w.AddPane(pane); err != nil {
-		return AddPaneResult{}, fmt.Errorf("add pane: %w", err)
+		return AddPaneResult{}, apperr.Validation(fmt.Errorf("add pane: %w", err))
 	}
 
 	if err := h.repo.Save(ctx, w); err != nil {

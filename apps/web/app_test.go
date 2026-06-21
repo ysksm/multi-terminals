@@ -67,11 +67,11 @@ func TestBuildDepsCreateGetRoundTrip(t *testing.T) {
 	if err := json.NewDecoder(getW.Body).Decode(&dto); err != nil {
 		t.Fatalf("decode get resp: %v", err)
 	}
-	if dto["ID"] != id {
-		t.Fatalf("expected ID %q, got %v", id, dto["ID"])
+	if dto["id"] != id {
+		t.Fatalf("expected id %q, got %v", id, dto["id"])
 	}
-	if dto["Name"] != "IntegrationWS" {
-		t.Fatalf("expected Name 'IntegrationWS', got %v", dto["Name"])
+	if dto["name"] != "IntegrationWS" {
+		t.Fatalf("expected name 'IntegrationWS', got %v", dto["name"])
 	}
 
 	// List — should return one workspace

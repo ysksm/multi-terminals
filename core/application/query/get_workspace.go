@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/domain"
 )
 
@@ -27,7 +28,7 @@ func NewGetWorkspaceHandler(repo domain.WorkspaceRepository) *GetWorkspaceHandle
 func (h *GetWorkspaceHandler) Handle(ctx context.Context, q GetWorkspaceQuery) (WorkspaceDTO, error) {
 	wsID, err := domain.NewWorkspaceId(q.WorkspaceID)
 	if err != nil {
-		return WorkspaceDTO{}, fmt.Errorf("get workspace: invalid id: %w", err)
+		return WorkspaceDTO{}, apperr.Validation(fmt.Errorf("get workspace: invalid id: %w", err))
 	}
 
 	w, err := h.repo.FindByID(ctx, wsID)
