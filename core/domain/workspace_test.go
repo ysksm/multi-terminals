@@ -251,3 +251,147 @@ func TestWorkspaceChangeLayoutRejectsPaneSlotOutOfRange(t *testing.T) {
 		t.Errorf("Layout should remain SplitVertical after rejected ChangeLayout, got %q", w.Layout())
 	}
 }
+
+// --- ReconstituteWorkspace tests ---
+
+func TestReconstituteWorkspace_HappyPath(t *testing.T) {
+	id := mustWorkspaceId(t, "ws1")
+	name := mustName(t, "MyWS")
+	p0 := newPaneAt(t, "p0", 0)
+	p1 := newPaneAt(t, "p1", 1)
+	lastActive := mustPaneId(t, "p0")
+	maximized := mustPaneId(t, "p1")
+
+	w, err := ReconstituteWorkspace(id, name, LayoutSplitVertical, []*Pane{p0, p1}, &lastActive, &maximized)
+	if err != nil {
+		t.Fatalf("ReconstituteWorkspace: %v", err)
+	}
+
+	if !w.ID().Equals(id) {
+		t.Errorf("ID = %v, want %v", w.ID(), id)
+	}
+	if w.Name().String() != "MyWS" {
+		t.Errorf("Name = %q, want %q", w.Name().String(), "MyWS")
+	}
+	if w.Layout() != LayoutSplitVertical {
+		t.Errorf("Layout = %q, want %q", w.Layout(), LayoutSplitVertical)
+	}
+	panes := w.Panes()
+	if len(panes) != 2 {
+		t.Fatalf("Panes len = %d, want 2", len(panes))
+	}
+	gotLast, ok := w.LastActivePaneId()
+	if !ok || !gotLast.Equals(lastActive) {
+		t.Errorf("LastActivePaneId = %v, ok=%v", gotLast, ok)
+	}
+	gotMax, ok := w.MaximizedPaneId()
+	if !ok || !gotMax.Equals(maximized) {
+		t.Errorf("MaximizedPaneId = %v, ok=%v", gotMax, ok)
+	}
+}
+
+func TestReconstituteWorkspace_NilLastActiveAndMaximized(t *testing.T) {
+	id := mustWorkspaceId(t, "ws2")
+	name := mustName(t, "WS2")
+	w, err := ReconstituteWorkspace(id, name, LayoutSingle, []*Pane{newPaneAt(t, "p0", 0)}, nil, nil)
+	if err != nil {
+		t.Fatalf("ReconstituteWorkspace: %v", err)
+	}
+	if _, ok := w.LastActivePaneId(); ok {
+		t.Error("nil lastActive should yield no LastActivePaneId")
+	}
+	if _, ok := w.MaximizedPaneId(); ok {
+		t.Error("nil maximized should yield no MaximizedPaneId")
+	}
+}
+
+func TestReconstituteWorkspace_EmptyPanes(t *testing.T) {
+	id := mustWorkspaceId(t, "ws3")
+	name := mustName(t, "WS3")
+	w, err := ReconstituteWorkspace(id, name, LayoutGrid2x2, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ReconstituteWorkspace with no panes: %v", err)
+	}
+	if len(w.Panes()) != 0 {
+		t.Errorf("expected 0 panes, got %d", len(w.Panes()))
+	}
+}
+
+func TestReconstituteWorkspace_RejectsOverCapacity(t *testing.T) {
+	id := mustWorkspaceId(t, "ws4")
+	name := mustName(t, "WS4")
+	panes := []*Pane{
+		newPaneAt(t, "p0", 0),
+		newPaneAt(t, "p1", 1),
+	}
+	// LayoutSingle has capacity 1, so 2 panes must fail
+	if _, err := ReconstituteWorkspace(id, name, LayoutSingle, panes, nil, nil); err == nil {
+		t.Error("pane count exceeding capacity should error")
+	}
+}
+
+func TestReconstituteWorkspace_RejectsDuplicateSlot(t *testing.T) {
+	id := mustWorkspaceId(t, "ws5")
+	name := mustName(t, "WS5")
+	p0 := newPaneAt(t, "p0", 0)
+	p1 := newPaneAt(t, "p1", 0) // same slot as p0
+	if _, err := ReconstituteWorkspace(id, name, LayoutSplitVertical, []*Pane{p0, p1}, nil, nil); err == nil {
+		t.Error("duplicate slot should error")
+	}
+}
+
+func TestReconstituteWorkspace_RejectsDuplicatePaneId(t *testing.T) {
+	id := mustWorkspaceId(t, "ws6")
+	name := mustName(t, "WS6")
+	p0 := newPaneAt(t, "p0", 0)
+	p0dup := newPaneAt(t, "p0", 1) // same id as p0
+	if _, err := ReconstituteWorkspace(id, name, LayoutSplitVertical, []*Pane{p0, p0dup}, nil, nil); err == nil {
+		t.Error("duplicate pane id should error")
+	}
+}
+
+func TestReconstituteWorkspace_RejectsLastActiveNotInPanes(t *testing.T) {
+	id := mustWorkspaceId(t, "ws7")
+	name := mustName(t, "WS7")
+	p0 := newPaneAt(t, "p0", 0)
+	missing := mustPaneId(t, "missing")
+	if _, err := ReconstituteWorkspace(id, name, LayoutSingle, []*Pane{p0}, &missing, nil); err == nil {
+		t.Error("lastActive pointing to non-existent pane should error")
+	}
+}
+
+func TestReconstituteWorkspace_RejectsMaximizedNotInPanes(t *testing.T) {
+	id := mustWorkspaceId(t, "ws8")
+	name := mustName(t, "WS8")
+	p0 := newPaneAt(t, "p0", 0)
+	missing := mustPaneId(t, "missing")
+	if _, err := ReconstituteWorkspace(id, name, LayoutSingle, []*Pane{p0}, nil, &missing); err == nil {
+		t.Error("maximized pointing to non-existent pane should error")
+	}
+}
+
+func TestReconstituteWorkspace_PointerAliasIsolation(t *testing.T) {
+	// Mutating the caller's PaneId pointers after reconstitution must not affect the workspace.
+	id := mustWorkspaceId(t, "ws9")
+	name := mustName(t, "WS9")
+	p0 := newPaneAt(t, "p0", 0)
+	lastActive := mustPaneId(t, "p0")
+	maximized := mustPaneId(t, "p0")
+
+	w, err := ReconstituteWorkspace(id, name, LayoutSingle, []*Pane{p0}, &lastActive, &maximized)
+	if err != nil {
+		t.Fatalf("ReconstituteWorkspace: %v", err)
+	}
+	// Overwrite the caller's variables — workspace must not be affected.
+	lastActive = mustPaneId(t, "changed")
+	maximized = mustPaneId(t, "changed")
+
+	gotLast, ok := w.LastActivePaneId()
+	if !ok || gotLast.String() != "p0" {
+		t.Errorf("LastActivePaneId = %v, ok=%v; want p0", gotLast, ok)
+	}
+	gotMax, ok := w.MaximizedPaneId()
+	if !ok || gotMax.String() != "p0" {
+		t.Errorf("MaximizedPaneId = %v, ok=%v; want p0", gotMax, ok)
+	}
+}
