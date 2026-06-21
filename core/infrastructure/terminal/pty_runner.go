@@ -40,7 +40,17 @@ func (r *Runner) Start(ctx context.Context, req port.TerminalStartRequest) (port
 		shell = r.defaultShell
 	}
 
-	cmd := exec.CommandContext(ctx, shell)
+	// Honor caller cancellation for the start operation only.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	// IMPORTANT: use exec.Command, NOT exec.CommandContext. A terminal session
+	// outlives the request that starts it; its lifetime is controlled solely by
+	// Close() (and Registry.CloseAll() on server shutdown). Binding the process
+	// to the caller's context would kill the shell the moment the originating
+	// HTTP request completes.
+	cmd := exec.Command(shell)
 	if req.Dir != "" {
 		cmd.Dir = req.Dir
 	}
