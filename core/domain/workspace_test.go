@@ -178,3 +178,60 @@ func TestWorkspaceSetPaneStartupCommands(t *testing.T) {
 		t.Error("missing pane should error")
 	}
 }
+
+func TestWorkspaceSetLastActivePane(t *testing.T) {
+	w := newTestWorkspace(t, LayoutSplitVertical)
+	_ = w.AddPane(newPaneAt(t, "p0", 0))
+	if _, ok := w.LastActivePaneId(); ok {
+		t.Error("new workspace should have no last active pane")
+	}
+	if err := w.SetLastActivePane(mustPaneId(t, "p0")); err != nil {
+		t.Fatalf("SetLastActivePane: %v", err)
+	}
+	got, ok := w.LastActivePaneId()
+	if !ok || !got.Equals(mustPaneId(t, "p0")) {
+		t.Errorf("LastActivePaneId = %v, ok=%v", got, ok)
+	}
+	if err := w.SetLastActivePane(mustPaneId(t, "missing")); err == nil {
+		t.Error("missing pane should error")
+	}
+}
+
+func TestWorkspaceMaximizeAndRestore(t *testing.T) {
+	w := newTestWorkspace(t, LayoutGrid2x2)
+	_ = w.AddPane(newPaneAt(t, "p0", 0))
+	_ = w.AddPane(newPaneAt(t, "p1", 1))
+	if _, ok := w.MaximizedPaneId(); ok {
+		t.Error("new workspace should not be maximized")
+	}
+	if err := w.MaximizePane(mustPaneId(t, "p1")); err != nil {
+		t.Fatalf("MaximizePane: %v", err)
+	}
+	got, ok := w.MaximizedPaneId()
+	if !ok || !got.Equals(mustPaneId(t, "p1")) {
+		t.Errorf("MaximizedPaneId = %v, ok=%v", got, ok)
+	}
+	w.RestoreLayout()
+	if _, ok := w.MaximizedPaneId(); ok {
+		t.Error("RestoreLayout should clear maximized")
+	}
+	if err := w.MaximizePane(mustPaneId(t, "missing")); err == nil {
+		t.Error("maximizing missing pane should error")
+	}
+}
+
+func TestRemovePaneClearsActiveAndMaximized(t *testing.T) {
+	w := newTestWorkspace(t, LayoutGrid2x2)
+	_ = w.AddPane(newPaneAt(t, "p0", 0))
+	_ = w.SetLastActivePane(mustPaneId(t, "p0"))
+	_ = w.MaximizePane(mustPaneId(t, "p0"))
+	if err := w.RemovePane(mustPaneId(t, "p0")); err != nil {
+		t.Fatalf("RemovePane: %v", err)
+	}
+	if _, ok := w.LastActivePaneId(); ok {
+		t.Error("removing active pane should clear lastActive")
+	}
+	if _, ok := w.MaximizedPaneId(); ok {
+		t.Error("removing maximized pane should clear maximized")
+	}
+}

@@ -129,3 +129,44 @@ func (w *Workspace) SetPaneStartupCommands(id PaneId, commands []StartupCommand)
 	p.setCommands(commands)
 	return nil
 }
+
+// SetLastActivePane は最後にアクティブだった pane を記録する。pane が存在しなければエラー。
+func (w *Workspace) SetLastActivePane(id PaneId) error {
+	if w.findPane(id) == nil {
+		return fmt.Errorf("pane %s not found", id)
+	}
+	copied := id
+	w.lastActive = &copied
+	return nil
+}
+
+// LastActivePaneId は記録された pane id と設定有無を返す。
+func (w *Workspace) LastActivePaneId() (PaneId, bool) {
+	if w.lastActive == nil {
+		return PaneId{}, false
+	}
+	return *w.lastActive, true
+}
+
+// MaximizePane は指定 pane を最大化状態にする。pane が存在しなければエラー。
+func (w *Workspace) MaximizePane(id PaneId) error {
+	if w.findPane(id) == nil {
+		return fmt.Errorf("pane %s not found", id)
+	}
+	copied := id
+	w.maximized = &copied
+	return nil
+}
+
+// RestoreLayout は最大化状態を解除する。
+func (w *Workspace) RestoreLayout() {
+	w.maximized = nil
+}
+
+// MaximizedPaneId は最大化中の pane id と設定有無を返す。
+func (w *Workspace) MaximizedPaneId() (PaneId, bool) {
+	if w.maximized == nil {
+		return PaneId{}, false
+	}
+	return *w.maximized, true
+}
