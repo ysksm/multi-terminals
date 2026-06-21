@@ -4,12 +4,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/ysksm/multi-terminals/apps/web"
 	"github.com/ysksm/multi-terminals/core/application/apptest"
+	"github.com/ysksm/multi-terminals/core/application/session"
 )
 
 // dialWS connects a gorilla WebSocket client to the given URL.
@@ -29,10 +31,11 @@ func TestWebSocketInputEcho(t *testing.T) {
 	deps := buildTestDeps(t)
 	mux := web.NewMux(deps)
 
-	// Register a fake session in the registry so the handler can find it.
+	// Register a fake session hub in the registry so the handler can find it.
 	paneID := "test-pane-echo"
 	fakeSess := apptest.NewFakeTerminalSession(paneID)
-	deps.Registry.Add(paneID, fakeSess)
+	hub := session.NewSession(fakeSess)
+	deps.Registry.Add(paneID, hub)
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -49,7 +52,7 @@ func TestWebSocketInputEcho(t *testing.T) {
 	}
 
 	// The fake session echoes Write data on its Output() channel.
-	// The output pump goroutine in the handler forwards it as a BinaryMessage.
+	// The hub drain goroutine buffers it; the output pump forwards it as BinaryMessage.
 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	mt, recv, err := conn.ReadMessage()
 	if err != nil {
@@ -71,7 +74,8 @@ func TestWebSocketResizeUpdatesSession(t *testing.T) {
 
 	paneID := "test-pane-resize"
 	fakeSess := apptest.NewFakeTerminalSession(paneID)
-	deps.Registry.Add(paneID, fakeSess)
+	hub := session.NewSession(fakeSess)
+	deps.Registry.Add(paneID, hub)
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -99,55 +103,102 @@ func TestWebSocketResizeUpdatesSession(t *testing.T) {
 	t.Fatalf("resize not applied: LastCols=%d LastRows=%d", cols, rows)
 }
 
-// TestWebSocketDuplicateConnectionRejected verifies that a second concurrent
-// WebSocket connection to the same pane is rejected (HTTP 409) while the first
-// stays active.
-func TestWebSocketDuplicateConnectionRejected(t *testing.T) {
+// TestWebSocketTwoSubscribersBothReceiveOutput verifies that two concurrent
+// WebSocket connections to the same pane both receive output (hub fan-out).
+// This replaces the old duplicate-connection-rejection test; the hub supports
+// multiple subscribers safely, so ConnGuard is no longer needed.
+func TestWebSocketTwoSubscribersBothReceiveOutput(t *testing.T) {
 	deps := buildTestDeps(t)
 	mux := web.NewMux(deps)
 
-	paneID := "test-pane-dup"
+	paneID := "test-pane-fanout"
 	fakeSess := apptest.NewFakeTerminalSession(paneID)
-	deps.Registry.Add(paneID, fakeSess)
+	hub := session.NewSession(fakeSess)
+	deps.Registry.Add(paneID, hub)
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/panes/" + paneID + "/io"
 
-	// First connection — must succeed.
+	// Two concurrent connections — both must succeed.
 	conn1 := dialWS(t, wsURL)
 	t.Cleanup(func() { conn1.Close() })
 
-	// Second connection — must be rejected with HTTP 409 (Conflict).
-	dialer := websocket.Dialer{HandshakeTimeout: 3 * time.Second}
-	_, resp, err := dialer.Dial(wsURL, nil)
-	if err == nil {
-		t.Fatalf("expected second connection to be rejected, but it succeeded")
-	}
-	if resp == nil || resp.StatusCode != http.StatusConflict {
-		status := 0
-		if resp != nil {
-			status = resp.StatusCode
-		}
-		t.Fatalf("expected HTTP 409 for duplicate connection, got %d", status)
+	conn2 := dialWS(t, wsURL)
+	t.Cleanup(func() { conn2.Close() })
+
+	// Send an input on conn1 which causes echo output; both subscribers should receive it.
+	msg := `{"type":"input","data":"fanout"}`
+	if err := conn1.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
+		t.Fatalf("conn1 WriteMessage: %v", err)
 	}
 
-	// First connection must still be alive: send a message and verify echo.
-	msg := `{"type":"input","data":"still-alive"}`
-	if err := conn1.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
-		t.Fatalf("first connection write failed: %v", err)
+	// Both connections should receive the echoed output.
+	var wg sync.WaitGroup
+	wg.Add(2)
+	results := make([]string, 2)
+
+	for i, conn := range []*websocket.Conn{conn1, conn2} {
+		i, conn := i, conn
+		go func() {
+			defer wg.Done()
+			conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+			mt, recv, err := conn.ReadMessage()
+			if err != nil {
+				t.Errorf("conn%d ReadMessage: %v", i+1, err)
+				return
+			}
+			if mt != websocket.BinaryMessage {
+				t.Errorf("conn%d: expected BinaryMessage, got %d", i+1, mt)
+				return
+			}
+			results[i] = string(recv)
+		}()
 	}
-	conn1.SetReadDeadline(time.Now().Add(3 * time.Second))
-	mt, recv, err := conn1.ReadMessage()
+	wg.Wait()
+
+	for i, got := range results {
+		if got != "fanout" {
+			t.Errorf("conn%d: expected 'fanout', got %q", i+1, got)
+		}
+	}
+}
+
+// TestWebSocketScrollbackSentOnConnect verifies that the scrollback snapshot is
+// sent as the first binary frame when a client connects.
+func TestWebSocketScrollbackSentOnConnect(t *testing.T) {
+	deps := buildTestDeps(t)
+	mux := web.NewMux(deps)
+
+	paneID := "test-pane-scrollback"
+	fakeSess := apptest.NewFakeTerminalSession(paneID)
+	hub := session.NewSession(fakeSess)
+	deps.Registry.Add(paneID, hub)
+
+	// Write some data before the WebSocket client connects.
+	_ = fakeSess.Write([]byte("prior-output"))
+	// Wait for the drain goroutine to buffer it.
+	time.Sleep(50 * time.Millisecond)
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/panes/" + paneID + "/io"
+	conn := dialWS(t, wsURL)
+	t.Cleanup(func() { conn.Close() })
+
+	// The first message should be the scrollback snapshot.
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	mt, recv, err := conn.ReadMessage()
 	if err != nil {
-		t.Fatalf("first connection read failed: %v", err)
+		t.Fatalf("ReadMessage: %v", err)
 	}
 	if mt != websocket.BinaryMessage {
 		t.Fatalf("expected BinaryMessage, got %d", mt)
 	}
-	if string(recv) != "still-alive" {
-		t.Fatalf("expected 'still-alive', got %q", string(recv))
+	if string(recv) != "prior-output" {
+		t.Fatalf("expected scrollback 'prior-output', got %q", string(recv))
 	}
 }
 

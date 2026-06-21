@@ -26,85 +26,49 @@ type wsInputMsg struct {
 	Rows uint16 `json:"rows"`
 }
 
-// ConnGuard enforces at most one active WebSocket attachment per paneId.
-// It is safe for concurrent use.
-type ConnGuard struct {
-	mu       sync.Mutex
-	attached map[string]bool
-}
-
-// NewConnGuard returns a new, empty ConnGuard.
-func NewConnGuard() *ConnGuard {
-	return &ConnGuard{attached: make(map[string]bool)}
-}
-
-// claim tries to claim paneID. Returns true if successful (caller holds the
-// attachment), false if already claimed.
-func (g *ConnGuard) claim(paneID string) bool {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	if g.attached[paneID] {
-		return false
-	}
-	g.attached[paneID] = true
-	return true
-}
-
-// release releases a previously claimed paneID.
-func (g *ConnGuard) release(paneID string) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	delete(g.attached, paneID)
-}
-
 // handlePaneIO upgrades the connection to WebSocket and bridges I/O for the
 // terminal session identified by {paneId}.
 //
-// Output pump: reads from sess.Output() and forwards each chunk as a binary
-// WebSocket message. When the output channel is closed (process exit / Close),
-// the pump sends a Close frame and stops.
+// On connect: fetches the scrollback snapshot from the hub and sends it as a
+// single binary frame, then streams live output via a hub subscription.
+//
+// Output pump: reads from sub.C() and forwards each chunk as a binary
+// WebSocket message. When sub.Done() closes (session ended or slow-subscriber
+// drop), a Close frame is sent and the pump stops.
 //
 // Input loop: reads WebSocket messages from the client.
 //   - type=="input"  → WriteToPaneCommand (data field → bytes)
 //   - type=="resize" → ResizePaneCommand  (cols/rows)
 //
-// The handler returns when either the client disconnects or the session ends.
+// The handler returns when either the client disconnects or the subscription ends.
+// Multiple concurrent WebSocket connections to the same pane are supported; the
+// hub fan-out handles them safely.
 func (d Deps) handlePaneIO(w http.ResponseWriter, r *http.Request) {
 	paneID := r.PathValue("paneId")
 
-	// Look up the live session. Return 404 before upgrading if not found.
-	sess, ok := d.Registry.Get(paneID)
+	// Look up the live session hub. Return 404 before upgrading if not found.
+	hub, ok := d.Registry.Get(paneID)
 	if !ok {
 		http.Error(w, `{"error":"session not found"}`, http.StatusNotFound)
 		return
 	}
 
-	// A3: enforce single consumer per pane. Reject (409) if already attached.
-	if !d.ConnGuard.claim(paneID) {
-		http.Error(w, `{"error":"pane already attached"}`, http.StatusConflict)
-		return
-	}
-	// Release the claim when the handler (and the pump goroutine) are both done.
-	// We use a separate WaitGroup so release happens only after the pump exits.
-	var pumpDone sync.WaitGroup
-	pumpDone.Add(1)
-	go func() {
-		pumpDone.Wait()
-		d.ConnGuard.release(paneID)
-	}()
+	// Subscribe before upgrading so we don't miss output that arrives between
+	// the lookup and the upgrade.
+	snapshot, sub := hub.Subscribe()
+	// Unsubscribe when this handler exits (idempotent).
+	defer hub.Unsubscribe(sub)
 
 	// Upgrade the HTTP connection to WebSocket.
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		// upgrader has already written the error response; the pump was never
-		// started, so signal that it is "done" immediately.
-		pumpDone.Done()
+		// upgrader has already written the error response.
 		return
 	}
 
 	// A1: idempotent done-channel closer shared by both goroutines.
-	// closed when either the client disconnects (input loop) or the session ends
-	// (output pump).
+	// Closed when either the client disconnects (input loop) or the subscription
+	// ends (output pump).
 	done := make(chan struct{})
 	var closeOnce sync.Once
 	closeDone := func() {
@@ -120,12 +84,22 @@ func (d Deps) handlePaneIO(w http.ResponseWriter, r *http.Request) {
 		return ws.WriteMessage(mt, data)
 	}
 
-	// Output pump: session → client.
-	// A4: drive purely off sess.Output() (range loop) so no buffered chunks are
-	// dropped. The pump exits when:
-	//   a) the output channel is closed (session ended), or
-	//   b) done fires (client disconnected) — we select on done alongside
-	//      the channel to avoid being blocked forever on a long-lived session.
+	// Send the scrollback snapshot first (if non-empty) so the client
+	// immediately sees prior output on reconnect.
+	if len(snapshot) > 0 {
+		if err := wsWrite(websocket.BinaryMessage, snapshot); err != nil {
+			wsMu.Lock()
+			ws.Close()
+			wsMu.Unlock()
+			return
+		}
+	}
+
+	// Output pump: session hub → client.
+	// Drives off sub.C() (live output) and sub.Done() (subscription ended).
+	// sub.C() is never closed, so no ok-check needed.
+	var pumpDone sync.WaitGroup
+	pumpDone.Add(1)
 	go func() {
 		defer func() {
 			pumpDone.Done()
@@ -137,22 +111,18 @@ func (d Deps) handlePaneIO(w http.ResponseWriter, r *http.Request) {
 
 		for {
 			select {
-			case chunk, more := <-sess.Output():
-				if !more {
-					// Session output channel closed — process exited or Close called.
-					// Send a clean close frame before exiting.
-					_ = wsWrite(websocket.CloseMessage,
-						websocket.FormatCloseMessage(websocket.CloseNormalClosure, "session ended"))
-					return
-				}
+			case chunk := <-sub.C():
 				if err := wsWrite(websocket.BinaryMessage, chunk); err != nil {
 					// Client write failed.
 					return
 				}
+			case <-sub.Done():
+				// Subscription ended (session exited or slow-subscriber drop).
+				_ = wsWrite(websocket.CloseMessage,
+					websocket.FormatCloseMessage(websocket.CloseNormalClosure, "session ended"))
+				return
 			case <-done:
-				// Client disconnected; exit pump without draining to avoid a
-				// goroutine leak.  Any remaining output is intentionally dropped
-				// because there is no client to receive it.
+				// Client disconnected; stop pump without draining.
 				return
 			}
 		}
@@ -189,7 +159,6 @@ func (d Deps) handlePaneIO(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Wait for the output pump to finish before returning. This ensures ws is
-	// not closed from two goroutines and that the ConnGuard claim is released
-	// only once the pump has fully exited.
+	// not closed from two goroutines simultaneously.
 	<-done
 }

@@ -44,7 +44,6 @@ func buildTestDeps(t *testing.T) web.Deps {
 		Resize:        command.NewResizePaneHandler(reg),
 		ClosePane:     command.NewClosePaneHandler(reg),
 		Registry:      reg,
-		ConnGuard:     web.NewConnGuard(),
 	}
 }
 
@@ -696,5 +695,75 @@ func TestCreateWorkspaceMalformedJSON400(t *testing.T) {
 	w := doRequest(mux, http.MethodPost, "/api/workspaces", `{not valid json`)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for malformed JSON, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// ---- Task 5: GET /api/sessions tests ----
+
+// TestListSessionsEmpty verifies that /api/sessions returns {"paneIds":[]} when no sessions are live.
+func TestListSessionsEmpty(t *testing.T) {
+	mux := web.NewMux(buildTestDeps(t))
+	w := doRequest(mux, http.MethodGet, "/api/sessions", "")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	paneIds, ok := resp["paneIds"].([]interface{})
+	if !ok {
+		t.Fatalf("expected paneIds array, got %v", resp)
+	}
+	if len(paneIds) != 0 {
+		t.Fatalf("expected empty paneIds, got %v", paneIds)
+	}
+}
+
+// TestListSessionsAfterOpen verifies that /api/sessions contains the pane ID after opening.
+func TestListSessionsAfterOpen(t *testing.T) {
+	deps := buildTestDeps(t)
+	mux := web.NewMux(deps)
+
+	// Create workspace and add a pane.
+	w := doRequest(mux, http.MethodPost, "/api/workspaces", `{"name":"WS","layout":"single"}`)
+	var cr map[string]string
+	json.NewDecoder(w.Body).Decode(&cr)
+	id := cr["id"]
+
+	addW := doRequest(mux, http.MethodPost, "/api/workspaces/"+id+"/panes",
+		`{"directory":"/tmp","slot":0,"commands":[]}`)
+	if addW.Code != http.StatusCreated {
+		t.Fatalf("add pane: expected 201, got %d: %s", addW.Code, addW.Body.String())
+	}
+	var addResp map[string]string
+	json.NewDecoder(addW.Body).Decode(&addResp)
+	paneID := addResp["paneId"]
+
+	// Open the workspace — this starts the session.
+	openW := doRequest(mux, http.MethodPost, "/api/workspaces/"+id+"/open", "")
+	if openW.Code != http.StatusOK {
+		t.Fatalf("open: expected 200, got %d: %s", openW.Code, openW.Body.String())
+	}
+
+	// GET /api/sessions — pane ID must appear.
+	sessW := doRequest(mux, http.MethodGet, "/api/sessions", "")
+	if sessW.Code != http.StatusOK {
+		t.Fatalf("sessions: expected 200, got %d: %s", sessW.Code, sessW.Body.String())
+	}
+	var sessResp map[string]interface{}
+	json.NewDecoder(sessW.Body).Decode(&sessResp)
+	paneIds, ok := sessResp["paneIds"].([]interface{})
+	if !ok {
+		t.Fatalf("expected paneIds array, got %v", sessResp)
+	}
+	found := false
+	for _, p := range paneIds {
+		if p == paneID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected paneId %q in paneIds, got %v", paneID, paneIds)
 	}
 }

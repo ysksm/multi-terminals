@@ -34,8 +34,6 @@ type Deps struct {
 	Resize        *command.ResizePaneHandler
 	ClosePane     *command.ClosePaneHandler
 	Registry      *session.Registry
-	// ConnGuard enforces at most one active WebSocket attachment per paneId.
-	ConnGuard *ConnGuard
 }
 
 // NewMux registers all routes and returns the HTTP mux.
@@ -65,6 +63,9 @@ func NewMux(d Deps) *http.ServeMux {
 
 	// Global queries
 	mux.HandleFunc("GET /api/last-opened", d.handleGetLastOpened)
+
+	// Session list (live pane IDs for resume)
+	mux.HandleFunc("GET /api/sessions", d.handleListSessions)
 
 	// WebSocket pane I/O
 	mux.HandleFunc("GET /api/panes/{paneId}/io", d.handlePaneIO)
@@ -355,4 +356,14 @@ func (d Deps) handleOpenWorkspace(w http.ResponseWriter, r *http.Request) {
 		panes[i] = openedPaneJSON{PaneID: p.PaneID}
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"panes": panes})
+}
+
+// handleListSessions returns the IDs of all currently live pane sessions.
+// The response is always {"paneIds": [...]}, never null.
+func (d Deps) handleListSessions(w http.ResponseWriter, _ *http.Request) {
+	ids := d.Registry.IDs()
+	if ids == nil {
+		ids = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"paneIds": ids})
 }

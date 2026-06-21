@@ -45,12 +45,26 @@
   async function select(id) {
     await guard(async () => {
       current = await api.getWorkspace(id)
-      openedPaneIds = new Set() // 別ワークスペース選択で端末接続をリセット
+      // サーバー側で生存しているセッションへ自動再接続（resume）
+      await syncLiveSessions()
     })
   }
 
   async function reloadCurrent() {
     if (current) current = await api.getWorkspace(current.id)
+  }
+
+  // サーバー上で生きているセッションを取得し、現ワークスペースの該当ペインを
+  // openedPaneIds にセットする。端末コンポーネントが自動で再接続し、
+  // スクロールバック（直近の画面）が復元される。
+  async function syncLiveSessions() {
+    if (!current) {
+      openedPaneIds = new Set()
+      return
+    }
+    const res = await api.listSessions()
+    const live = new Set(res?.paneIds || [])
+    openedPaneIds = new Set(current.panes.filter((p) => live.has(p.id)).map((p) => p.id))
   }
 
   function createWorkspace() {
@@ -132,6 +146,8 @@
       const last = await api.lastOpened()
       if (last?.found && last.workspace) {
         current = last.workspace
+        // リロード/再訪時に生存セッションへ自動再接続する
+        await syncLiveSessions()
       }
     })
   })

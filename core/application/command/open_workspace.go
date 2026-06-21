@@ -60,8 +60,9 @@ func NewOpenWorkspaceHandler(
 
 // Handle opens the workspace by starting a terminal session for each pane.
 // Panes are processed in ascending slot order.
-// If an existing session for a pane is registered, it is closed before starting a new one.
-// If starting any session fails, all sessions started in this call are closed and removed.
+// If a live session for a pane is already registered, it is resumed (not restarted)
+// and autoRun commands are not re-sent.
+// If starting any new session fails, all sessions started in this call are closed and removed.
 // On full success, state.SetLastOpened is called with the workspace ID.
 func (h *OpenWorkspaceHandler) Handle(ctx context.Context, cmd OpenWorkspaceCommand) (OpenWorkspaceResult, error) {
 	wsID, err := domain.NewWorkspaceId(cmd.WorkspaceID)
@@ -80,16 +81,18 @@ func (h *OpenWorkspaceHandler) Handle(ctx context.Context, cmd OpenWorkspaceComm
 		return panes[i].Slot().Int() < panes[j].Slot().Int()
 	})
 
-	// Track sessions opened in this call for cleanup on failure.
-	var opened []string
+	// allPaneIDs collects all pane IDs (resumed + newly started) for the result.
+	var allPaneIDs []string
+	// newlyOpened tracks sessions started in this call so we can clean them up on failure.
+	var newlyOpened []string
 
 	for _, pane := range panes {
 		paneID := pane.ID().String()
 
-		// Close and remove any existing session for this pane.
-		if existing, ok := h.registry.Get(paneID); ok {
-			_ = existing.Close()
-			h.registry.Remove(paneID)
+		// RESUME: if a live session already exists for this pane, do not restart it.
+		if _, ok := h.registry.Get(paneID); ok {
+			allPaneIDs = append(allPaneIDs, paneID)
+			continue
 		}
 
 		// Start a new terminal session for this pane.
@@ -100,10 +103,10 @@ func (h *OpenWorkspaceHandler) Handle(ctx context.Context, cmd OpenWorkspaceComm
 			Cols:      h.cols,
 			Rows:      h.rows,
 		}
-		sess, err := h.runner.Start(ctx, req)
+		inner, err := h.runner.Start(ctx, req)
 		if err != nil {
 			// Clean up all sessions started in this call.
-			for _, openedID := range opened {
+			for _, openedID := range newlyOpened {
 				if s, ok := h.registry.Get(openedID); ok {
 					_ = s.Close()
 					h.registry.Remove(openedID)
@@ -112,22 +115,21 @@ func (h *OpenWorkspaceHandler) Handle(ctx context.Context, cmd OpenWorkspaceComm
 			return OpenWorkspaceResult{}, fmt.Errorf("open workspace: start pane %s: %w", paneID, err)
 		}
 
-		h.registry.Add(paneID, sess)
-		opened = append(opened, paneID)
+		hub := session.NewSession(inner)
+		h.registry.Add(paneID, hub)
+		newlyOpened = append(newlyOpened, paneID)
+		allPaneIDs = append(allPaneIDs, paneID)
 
-		// A6.1: reap the session from the registry when its PTY exits naturally
-		// (e.g. the user types "exit"). The goroutine captures the session and
-		// paneID by value so it is not affected by loop variable reuse.
-		go func(id string, s port.TerminalSession) {
+		// Reap the session from the registry when its PTY exits naturally.
+		go func(id string, s *session.Session) {
 			<-s.Done()
 			h.registry.Remove(id)
-		}(paneID, sess)
+		}(paneID, hub)
 
 		// Send autoRun startup commands.
 		for _, sc := range pane.Commands() {
 			if sc.AutoRun() {
-				if err := sess.Write([]byte(sc.Command() + "\n")); err != nil {
-					// Non-fatal: log would go here in production; continue.
+				if err := hub.Write([]byte(sc.Command() + "\n")); err != nil {
 					_ = err
 				}
 			}
@@ -136,8 +138,8 @@ func (h *OpenWorkspaceHandler) Handle(ctx context.Context, cmd OpenWorkspaceComm
 
 	// Record the last-opened workspace.
 	if err := h.state.SetLastOpened(ctx, cmd.WorkspaceID); err != nil {
-		// A5: clean up all sessions opened in this call so they are not leaked.
-		for _, openedID := range opened {
+		// Clean up only the sessions opened in this call.
+		for _, openedID := range newlyOpened {
 			if s, ok := h.registry.Get(openedID); ok {
 				_ = s.Close()
 				h.registry.Remove(openedID)
@@ -146,8 +148,8 @@ func (h *OpenWorkspaceHandler) Handle(ctx context.Context, cmd OpenWorkspaceComm
 		return OpenWorkspaceResult{}, fmt.Errorf("open workspace: set last opened: %w", err)
 	}
 
-	result := OpenWorkspaceResult{Panes: make([]OpenedPane, len(opened))}
-	for i, id := range opened {
+	result := OpenWorkspaceResult{Panes: make([]OpenedPane, len(allPaneIDs))}
+	for i, id := range allPaneIDs {
 		result.Panes[i] = OpenedPane{PaneID: id}
 	}
 	return result, nil

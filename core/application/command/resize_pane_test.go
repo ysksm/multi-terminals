@@ -15,7 +15,8 @@ func TestResizePaneHandler_Handle_Success(t *testing.T) {
 	reg := session.NewRegistry()
 
 	fakeSess := apptest.NewFakeTerminalSession("pane-1")
-	reg.Add("pane-1", fakeSess)
+	hub := session.NewSession(fakeSess)
+	reg.Add("pane-1", hub)
 
 	handler := command.NewResizePaneHandler(reg)
 	err := handler.Handle(ctx, command.ResizePaneCommand{
@@ -27,7 +28,7 @@ func TestResizePaneHandler_Handle_Success(t *testing.T) {
 		t.Fatalf("Handle: %v", err)
 	}
 
-	// Verify the resize was applied.
+	// Verify the resize was applied to the inner fake session.
 	if fakeSess.LastCols != 120 {
 		t.Errorf("expected LastCols=120, got %d", fakeSess.LastCols)
 	}

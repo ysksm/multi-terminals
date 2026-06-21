@@ -3,15 +3,22 @@ package session_test
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ysksm/multi-terminals/core/application/apptest"
 	"github.com/ysksm/multi-terminals/core/application/session"
 )
 
+// newHub wraps a FakeTerminalSession in a Session hub for registry tests.
+func newHub(id string) (*session.Session, *apptest.FakeTerminalSession) {
+	fake := apptest.NewFakeTerminalSession(id)
+	return session.NewSession(fake), fake
+}
+
 func TestRegistry_AddGetRemove(t *testing.T) {
 	r := session.NewRegistry()
 
-	s := apptest.NewFakeTerminalSession("sess-1")
+	s, _ := newHub("sess-1")
 	r.Add("sess-1", s)
 
 	got, ok := r.Get("sess-1")
@@ -31,8 +38,10 @@ func TestRegistry_AddGetRemove(t *testing.T) {
 
 func TestRegistry_IDs(t *testing.T) {
 	r := session.NewRegistry()
-	r.Add("a", apptest.NewFakeTerminalSession("a"))
-	r.Add("b", apptest.NewFakeTerminalSession("b"))
+	sa, _ := newHub("a")
+	sb, _ := newHub("b")
+	r.Add("a", sa)
+	r.Add("b", sb)
 
 	ids := r.IDs()
 	if len(ids) != 2 {
@@ -49,8 +58,8 @@ func TestRegistry_IDs(t *testing.T) {
 
 func TestRegistry_CloseAll(t *testing.T) {
 	r := session.NewRegistry()
-	s1 := apptest.NewFakeTerminalSession("s1")
-	s2 := apptest.NewFakeTerminalSession("s2")
+	s1, _ := newHub("s1")
+	s2, _ := newHub("s2")
 	r.Add("s1", s1)
 	r.Add("s2", s2)
 
@@ -59,18 +68,14 @@ func TestRegistry_CloseAll(t *testing.T) {
 	if ids := r.IDs(); len(ids) != 0 {
 		t.Errorf("expected empty registry after CloseAll, got %v", ids)
 	}
-	// sessions should be closed (Done channel closed)
-	select {
-	case <-s1.Done():
-		// ok
-	default:
-		t.Error("s1.Done() should be closed after CloseAll")
-	}
-	select {
-	case <-s2.Done():
-		// ok
-	default:
-		t.Error("s2.Done() should be closed after CloseAll")
+	// hub Done channels should close once CloseAll triggers inner session close.
+	for _, hub := range []*session.Session{s1, s2} {
+		select {
+		case <-hub.Done():
+			// ok
+		case <-time.After(3 * time.Second):
+			t.Error("hub.Done() did not close after CloseAll")
+		}
 	}
 }
 
@@ -97,7 +102,7 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			id := string(rune('a' + i%26))
-			s := apptest.NewFakeTerminalSession(id)
+			s, _ := newHub(id)
 			r.Add(id, s)
 			r.Get(id)
 			r.IDs()
