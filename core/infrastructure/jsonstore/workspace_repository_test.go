@@ -482,6 +482,75 @@ func TestFullRoundTrip(t *testing.T) {
 	}
 }
 
+// TestPathTraversalRejected verifies that Save, FindByID, and Delete all return errors
+// when presented with a workspace ID that contains path-traversal components (Fix 3).
+func TestPathTraversalRejected(t *testing.T) {
+	base := t.TempDir()
+	repo, err := NewWorkspaceRepository(base)
+	if err != nil {
+		t.Fatalf("NewWorkspaceRepository: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Construct the malicious ID directly (domain.NewWorkspaceId allows arbitrary strings).
+	maliciousID, err := domain.NewWorkspaceId("../evil")
+	if err != nil {
+		t.Fatalf("NewWorkspaceId: %v", err)
+	}
+
+	// FindByID must error.
+	if _, err := repo.FindByID(ctx, maliciousID); err == nil {
+		t.Error("FindByID with path-traversal id: expected error, got nil")
+	}
+
+	// Delete must error.
+	if err := repo.Delete(ctx, maliciousID); err == nil {
+		t.Error("Delete with path-traversal id: expected error, got nil")
+	}
+
+	// Save must error: build a minimal workspace with the malicious ID.
+	paneID, _ := domain.NewPaneId("pane-trav-1")
+	dir, _ := domain.NewDirectoryPath("/tmp")
+	slot, _ := domain.NewSlotIndex(0)
+	pane, _ := domain.NewPane(paneID, dir, slot, nil)
+	wsName, _ := domain.NewWorkspaceName("Traversal WS")
+	ws, _ := domain.ReconstituteWorkspace(maliciousID, wsName, domain.LayoutSingle, []*domain.Pane{pane}, nil, nil)
+	if err := repo.Save(ctx, ws); err == nil {
+		t.Error("Save with path-traversal id: expected error, got nil")
+	}
+
+	// Confirm no stray "evil.json" was created in the parent of the workspaces dir.
+	evilPath := filepath.Join(base, "evil.json")
+	if _, err := os.Stat(evilPath); !os.IsNotExist(err) {
+		t.Errorf("path-traversal created stray file at %q", evilPath)
+	}
+}
+
+// TestListIgnoresTmpFiles verifies that List ignores leftover .json.tmp files (Fix 4).
+func TestListIgnoresTmpFiles(t *testing.T) {
+	base := t.TempDir()
+	repo, err := NewWorkspaceRepository(base)
+	if err != nil {
+		t.Fatalf("NewWorkspaceRepository: %v", err)
+	}
+
+	// Place a leftover .json.tmp file directly in the workspaces directory.
+	tmpFile := filepath.Join(repo.dir, "ws-leftover.json.tmp")
+	if err := os.WriteFile(tmpFile, []byte(`{"not":"valid json for a workspace"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	ctx := context.Background()
+	got, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("List returned error for .json.tmp file: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected 0 workspaces (tmp file must be ignored), got %d", len(got))
+	}
+}
+
 // containsString is a helper that checks whether substr appears in s.
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||

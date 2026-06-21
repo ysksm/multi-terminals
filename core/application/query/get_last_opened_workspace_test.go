@@ -26,14 +26,18 @@ func TestGetLastOpenedWorkspaceHandler_NotSet(t *testing.T) {
 }
 
 // TestGetLastOpenedWorkspaceHandler_Found は設定済みの workspace が DTO として返ることを確認する。
+// Fix 6: also asserts pane fidelity (ID, Directory, Slot) through the query.
 func TestGetLastOpenedWorkspaceHandler_Found(t *testing.T) {
 	state := apptest.NewFakeAppStateStore()
 	repo := apptest.NewFakeRepo()
-	idgen := apptest.NewFakeIDGen("ws-1")
+	// IDs: ws-1 for the workspace, pane-1 for the pane added below.
+	idgen := apptest.NewFakeIDGen("ws-1", "pane-1")
+
+	ctx := context.Background()
 
 	// Create a workspace
 	createHandler := command.NewCreateWorkspaceHandler(repo, idgen)
-	result, err := createHandler.Handle(context.Background(), command.CreateWorkspaceCommand{
+	result, err := createHandler.Handle(ctx, command.CreateWorkspaceCommand{
 		Name:   "My WS",
 		Layout: "single",
 	})
@@ -42,13 +46,25 @@ func TestGetLastOpenedWorkspaceHandler_Found(t *testing.T) {
 	}
 	wsID := result.WorkspaceID
 
+	// Add a pane so we can assert pane fidelity in the DTO.
+	addPaneHandler := command.NewAddPaneHandler(repo, idgen)
+	paneResult, err := addPaneHandler.Handle(ctx, command.AddPaneCommand{
+		WorkspaceID: wsID,
+		Directory:   "/home/user",
+		Slot:        0,
+	})
+	if err != nil {
+		t.Fatalf("add pane: %v", err)
+	}
+	wantPaneID := paneResult.PaneID
+
 	// Record it as last opened
-	if err := state.SetLastOpened(context.Background(), wsID); err != nil {
+	if err := state.SetLastOpened(ctx, wsID); err != nil {
 		t.Fatalf("SetLastOpened: %v", err)
 	}
 
 	h := query.NewGetLastOpenedWorkspaceHandler(state, repo)
-	dto, ok, err := h.Handle(context.Background())
+	dto, ok, err := h.Handle(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -63,6 +79,21 @@ func TestGetLastOpenedWorkspaceHandler_Found(t *testing.T) {
 	}
 	if dto.Layout != "single" {
 		t.Errorf("dto.Layout: got %q, want %q", dto.Layout, "single")
+	}
+
+	// Pane fidelity assertions.
+	if len(dto.Panes) != 1 {
+		t.Fatalf("dto.Panes: got %d panes, want 1", len(dto.Panes))
+	}
+	p := dto.Panes[0]
+	if p.ID != wantPaneID {
+		t.Errorf("dto.Panes[0].ID: got %q, want %q", p.ID, wantPaneID)
+	}
+	if p.Directory != "/home/user" {
+		t.Errorf("dto.Panes[0].Directory: got %q, want %q", p.Directory, "/home/user")
+	}
+	if p.Slot != 0 {
+		t.Errorf("dto.Panes[0].Slot: got %d, want 0", p.Slot)
 	}
 }
 

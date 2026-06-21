@@ -38,6 +38,12 @@ func TestAppStateStore_SetAndLoad(t *testing.T) {
 		t.Fatalf("SetLastOpened: %v", err)
 	}
 
+	// Fix 5: no .tmp file should remain after a successful SetLastOpened.
+	tmpPath := filepath.Join(dir, "app-state.json.tmp")
+	if _, err := os.Stat(tmpPath); !os.IsNotExist(err) {
+		t.Errorf("tmp file should not remain after SetLastOpened: %q", tmpPath)
+	}
+
 	gotID, ok, err := s.Load(ctx)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -47,6 +53,38 @@ func TestAppStateStore_SetAndLoad(t *testing.T) {
 	}
 	if gotID != wantID {
 		t.Errorf("Load returned id %q, want %q", gotID, wantID)
+	}
+}
+
+// TestAppStateStore_MkdirLazy verifies that SetLastOpened creates the base directory
+// lazily when it does not yet exist (Fix 2).
+func TestAppStateStore_MkdirLazy(t *testing.T) {
+	// Point to a nested directory that does NOT yet exist.
+	baseDir := filepath.Join(t.TempDir(), "sub", "dir")
+	s := NewAppStateStore(baseDir)
+	ctx := context.Background()
+
+	const wantID = "ws-lazy-dir"
+
+	if err := s.SetLastOpened(ctx, wantID); err != nil {
+		t.Fatalf("SetLastOpened into non-existent dir: %v", err)
+	}
+
+	// No .tmp should linger.
+	tmpPath := filepath.Join(baseDir, "app-state.json.tmp")
+	if _, err := os.Stat(tmpPath); !os.IsNotExist(err) {
+		t.Errorf("tmp file should not remain: %q", tmpPath)
+	}
+
+	gotID, ok, err := s.Load(ctx)
+	if err != nil {
+		t.Fatalf("Load after lazy mkdir: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected ok=true, got false")
+	}
+	if gotID != wantID {
+		t.Errorf("Load returned %q, want %q", gotID, wantID)
 	}
 }
 

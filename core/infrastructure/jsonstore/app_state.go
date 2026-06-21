@@ -58,7 +58,12 @@ func (s *AppStateStore) Load(_ context.Context) (workspaceID string, ok bool, er
 
 // SetLastOpened atomically writes the given workspaceID as the last-opened workspace.
 // An empty workspaceID is valid and will cause subsequent Load calls to return ok=false.
+// The parent directory is created lazily if it does not yet exist.
 func (s *AppStateStore) SetLastOpened(_ context.Context, workspaceID string) error {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		return fmt.Errorf("creating app state directory: %w", err)
+	}
+
 	rec := appStateRecord{
 		Version:               CurrentSchemaVersion,
 		LastOpenedWorkspaceID: workspaceID,
@@ -75,6 +80,7 @@ func (s *AppStateStore) SetLastOpened(_ context.Context, workspaceID string) err
 	defer s.mu.Unlock()
 
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		_ = os.Remove(tmp)
 		return fmt.Errorf("writing tmp app state file %q: %w", tmp, err)
 	}
 	if err := os.Rename(tmp, s.path); err != nil {

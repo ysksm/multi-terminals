@@ -46,8 +46,15 @@ func DefaultBaseDir() (string, error) {
 }
 
 // pathFor returns the expected file path for a workspace with the given id string.
-func (r *WorkspaceRepository) pathFor(id string) string {
-	return filepath.Join(r.dir, id+".json")
+// It returns an error if id is not a safe single path segment (e.g. contains path separators or "..").
+func (r *WorkspaceRepository) pathFor(id string) (string, error) {
+	if id == "" || id == "." || id == ".." ||
+		strings.ContainsRune(id, os.PathSeparator) ||
+		strings.ContainsRune(id, '/') ||
+		strings.Contains(id, "..") {
+		return "", fmt.Errorf("invalid workspace id %q", id)
+	}
+	return filepath.Join(r.dir, id+".json"), nil
 }
 
 // Save marshals w to JSON and writes it atomically to pathFor(w.ID()).
@@ -59,13 +66,17 @@ func (r *WorkspaceRepository) Save(ctx context.Context, w *domain.Workspace) err
 		return fmt.Errorf("marshalling workspace %q: %w", w.ID().String(), err)
 	}
 
-	path := r.pathFor(w.ID().String())
+	path, err := r.pathFor(w.ID().String())
+	if err != nil {
+		return err
+	}
 	tmp := path + ".tmp"
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		_ = os.Remove(tmp)
 		return fmt.Errorf("writing tmp file %q: %w", tmp, err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
@@ -79,7 +90,10 @@ func (r *WorkspaceRepository) Save(ctx context.Context, w *domain.Workspace) err
 // FindByID loads the workspace with the given id from disk.
 // Returns domain.ErrWorkspaceNotFound if no file exists for that id.
 func (r *WorkspaceRepository) FindByID(ctx context.Context, id domain.WorkspaceId) (*domain.Workspace, error) {
-	path := r.pathFor(id.String())
+	path, err := r.pathFor(id.String())
+	if err != nil {
+		return nil, err
+	}
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -148,7 +162,10 @@ func (r *WorkspaceRepository) List(ctx context.Context) ([]*domain.Workspace, er
 // Delete removes the workspace file for the given id.
 // Returns domain.ErrWorkspaceNotFound if no file exists for that id.
 func (r *WorkspaceRepository) Delete(ctx context.Context, id domain.WorkspaceId) error {
-	path := r.pathFor(id.String())
+	path, err := r.pathFor(id.String())
+	if err != nil {
+		return err
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
