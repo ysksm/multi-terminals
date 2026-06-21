@@ -170,3 +170,84 @@ func (w *Workspace) MaximizedPaneId() (PaneId, bool) {
 	}
 	return *w.maximized, true
 }
+
+// hasPaneId は panes スライス中に id が存在するかを返す非公開ヘルパ。
+func hasPaneId(panes []*Pane, id PaneId) bool {
+	for _, p := range panes {
+		if p.id.Equals(id) {
+			return true
+		}
+	}
+	return false
+}
+
+// ReconstituteWorkspace は永続化ストアから読み出した検証済みデータで集約を再構築する。
+// 通常の生成時と同様に不変条件を検証する。
+// lastActive / maximized は与えた panes のいずれかを指すか nil でなければならない。
+// lastActive / maximized ポインタは値コピーして保持するため呼び出し側の変数とエイリアスしない。
+// panes スライスの要素 (*Pane) は集約の通常の規約に従い共有される（防御的コピーは Panes() メソッドが担う）。
+func ReconstituteWorkspace(
+	id WorkspaceId,
+	name WorkspaceName,
+	layout LayoutPreset,
+	panes []*Pane,
+	lastActive *PaneId,
+	maximized *PaneId,
+) (*Workspace, error) {
+	if id.IsZero() {
+		return nil, errors.New("workspace id must not be empty")
+	}
+	if !layout.IsValid() {
+		return nil, fmt.Errorf("invalid layout preset: %q", layout)
+	}
+	if len(panes) > layout.Capacity() {
+		return nil, fmt.Errorf("cannot reconstitute workspace: %d panes exceed layout capacity %d", len(panes), layout.Capacity())
+	}
+
+	// validate pane slot ranges and uniqueness
+	seenIds := make(map[string]bool, len(panes))
+	seenSlots := make(map[int]bool, len(panes))
+	for _, p := range panes {
+		if p == nil {
+			return nil, errors.New("pane must not be nil")
+		}
+		if p.slot.Int() >= layout.Capacity() {
+			return nil, fmt.Errorf("pane slot %d out of range for layout capacity %d", p.slot.Int(), layout.Capacity())
+		}
+		if seenIds[p.id.String()] {
+			return nil, fmt.Errorf("pane id %s already exists", p.id)
+		}
+		seenIds[p.id.String()] = true
+		if seenSlots[p.slot.Int()] {
+			return nil, fmt.Errorf("slot %d already occupied", p.slot.Int())
+		}
+		seenSlots[p.slot.Int()] = true
+	}
+
+	// validate lastActive / maximized pointers
+	if lastActive != nil && !hasPaneId(panes, *lastActive) {
+		return nil, fmt.Errorf("lastActive pane %s not found in provided panes", *lastActive)
+	}
+	if maximized != nil && !hasPaneId(panes, *maximized) {
+		return nil, fmt.Errorf("maximized pane %s not found in provided panes", *maximized)
+	}
+
+	w := &Workspace{
+		id:     id,
+		name:   name,
+		layout: layout,
+		panes:  append([]*Pane(nil), panes...),
+	}
+
+	// copy pointers to avoid aliasing caller's variables
+	if lastActive != nil {
+		copied := *lastActive
+		w.lastActive = &copied
+	}
+	if maximized != nil {
+		copied := *maximized
+		w.maximized = &copied
+	}
+
+	return w, nil
+}
