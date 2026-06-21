@@ -53,6 +53,13 @@ func TestAddPaneHandler_Handle_Success(t *testing.T) {
 	if panes[0].ID().String() != addResult.PaneID {
 		t.Errorf("pane ID mismatch: got %q, want %q", panes[0].ID().String(), addResult.PaneID)
 	}
+	// 1 for create + 1 for add pane
+	if repo.SaveCallCount != 2 {
+		t.Errorf("expected SaveCallCount 2, got %d", repo.SaveCallCount)
+	}
+	if repo.LastSavedID != wsID {
+		t.Errorf("expected LastSavedID %q, got %q", wsID, repo.LastSavedID)
+	}
 }
 
 func TestAddPaneHandler_Handle_WorkspaceNotFound(t *testing.T) {

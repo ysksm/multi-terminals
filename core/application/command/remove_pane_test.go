@@ -55,6 +55,13 @@ func TestRemovePaneHandler_Handle_Success(t *testing.T) {
 	if len(w.Panes()) != 0 {
 		t.Errorf("expected 0 panes after removal, got %d", len(w.Panes()))
 	}
+	// 1 for create + 1 for add pane + 1 for remove pane
+	if repo.SaveCallCount != 3 {
+		t.Errorf("expected SaveCallCount 3, got %d", repo.SaveCallCount)
+	}
+	if repo.LastSavedID != wsResult.WorkspaceID {
+		t.Errorf("expected LastSavedID %q, got %q", wsResult.WorkspaceID, repo.LastSavedID)
+	}
 }
 
 func TestRemovePaneHandler_Handle_WorkspaceNotFound(t *testing.T) {

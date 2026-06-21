@@ -62,6 +62,52 @@ func TestRestoreLayoutHandler_Handle_Success(t *testing.T) {
 	if ok {
 		t.Error("expected MaximizedPaneId to be cleared after RestoreLayout")
 	}
+	// 1 for create + 1 for add pane + 1 for maximize + 1 for restore
+	if repo.SaveCallCount != 4 {
+		t.Errorf("expected SaveCallCount 4, got %d", repo.SaveCallCount)
+	}
+	if repo.LastSavedID != wsResult.WorkspaceID {
+		t.Errorf("expected LastSavedID %q, got %q", wsResult.WorkspaceID, repo.LastSavedID)
+	}
+}
+
+// TestRestoreLayoutHandler_Handle_Idempotent は最大化されていないワークスペースに対して
+// RestoreLayout を呼び出してもエラーが返らず、MaximizedPaneId が未設定のままであることを確認する。
+func TestRestoreLayoutHandler_Handle_Idempotent(t *testing.T) {
+	ctx := context.Background()
+	repo := apptest.NewFakeRepo()
+	idgen := apptest.NewFakeIDGen("ws-1")
+
+	// create workspace (no maximize)
+	createWS := command.NewCreateWorkspaceHandler(repo, idgen)
+	wsResult, err := createWS.Handle(ctx, command.CreateWorkspaceCommand{Name: "WS", Layout: "single"})
+	if err != nil {
+		t.Fatalf("create workspace: %v", err)
+	}
+
+	// restore layout without prior maximize
+	handler := command.NewRestoreLayoutHandler(repo)
+	err = handler.Handle(ctx, command.RestoreLayoutCommand{
+		WorkspaceID: wsResult.WorkspaceID,
+	})
+	if err != nil {
+		t.Fatalf("restore layout on non-maximized workspace: %v", err)
+	}
+
+	// verify MaximizedPaneId is still unset
+	wsID, _ := domain.NewWorkspaceId(wsResult.WorkspaceID)
+	w, err := repo.FindByID(ctx, wsID)
+	if err != nil {
+		t.Fatalf("FindByID: %v", err)
+	}
+	_, ok := w.MaximizedPaneId()
+	if ok {
+		t.Error("expected MaximizedPaneId to be unset")
+	}
+	// 1 for create + 1 for restore
+	if repo.SaveCallCount != 2 {
+		t.Errorf("expected SaveCallCount 2, got %d", repo.SaveCallCount)
+	}
 }
 
 func TestRestoreLayoutHandler_Handle_WorkspaceNotFound(t *testing.T) {

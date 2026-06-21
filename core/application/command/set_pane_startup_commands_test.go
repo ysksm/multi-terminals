@@ -67,6 +67,13 @@ func TestSetPaneStartupCommandsHandler_Handle_Success(t *testing.T) {
 	if cmds[1].Command() != "ls -la" || cmds[1].AutoRun() {
 		t.Errorf("command[1] mismatch: got %q autoRun=%v", cmds[1].Command(), cmds[1].AutoRun())
 	}
+	// 1 for create + 1 for add pane + 1 for set startup commands
+	if repo.SaveCallCount != 3 {
+		t.Errorf("expected SaveCallCount 3, got %d", repo.SaveCallCount)
+	}
+	if repo.LastSavedID != wsResult.WorkspaceID {
+		t.Errorf("expected LastSavedID %q, got %q", wsResult.WorkspaceID, repo.LastSavedID)
+	}
 }
 
 func TestSetPaneStartupCommandsHandler_Handle_EmptyCommands(t *testing.T) {

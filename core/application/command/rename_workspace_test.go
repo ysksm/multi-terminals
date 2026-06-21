@@ -40,6 +40,13 @@ func TestRenameWorkspaceHandler_Handle_Success(t *testing.T) {
 	if saved.Name().String() != "New Name" {
 		t.Errorf("expected name %q, got %q", "New Name", saved.Name().String())
 	}
+	// 1 for create + 1 for rename
+	if repo.SaveCallCount != 2 {
+		t.Errorf("expected SaveCallCount 2, got %d", repo.SaveCallCount)
+	}
+	if repo.LastSavedID != "ws-001" {
+		t.Errorf("expected LastSavedID %q, got %q", "ws-001", repo.LastSavedID)
+	}
 }
 
 func TestRenameWorkspaceHandler_Handle_NotFound(t *testing.T) {

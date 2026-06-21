@@ -184,7 +184,8 @@ func hasPaneId(panes []*Pane, id PaneId) bool {
 // ReconstituteWorkspace は永続化ストアから読み出した検証済みデータで集約を再構築する。
 // 通常の生成時と同様に不変条件を検証する。
 // lastActive / maximized は与えた panes のいずれかを指すか nil でなければならない。
-// 与えられたポインタはコピーして保持する（呼び出し側ポインタをエイリアスしない）。
+// lastActive / maximized ポインタは値コピーして保持するため呼び出し側の変数とエイリアスしない。
+// panes スライスの要素 (*Pane) は集約の通常の規約に従い共有される（防御的コピーは Panes() メソッドが担う）。
 func ReconstituteWorkspace(
 	id WorkspaceId,
 	name WorkspaceName,

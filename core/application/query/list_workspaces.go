@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/ysksm/multi-terminals/core/domain"
 )
@@ -28,6 +29,10 @@ func (h *ListWorkspacesHandler) Handle(ctx context.Context) ([]WorkspaceDTO, err
 	for i, w := range workspaces {
 		dtos[i] = toWorkspaceDTO(w)
 	}
+
+	sort.Slice(dtos, func(i, j int) bool {
+		return dtos[i].ID < dtos[j].ID
+	})
 
 	return dtos, nil
 }

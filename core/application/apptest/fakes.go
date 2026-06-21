@@ -42,8 +42,10 @@ func (f *FakeIDGen) NewID() string {
 
 // FakeRepo は domain.WorkspaceRepository のインメモリ実装。
 type FakeRepo struct {
-	mu    sync.RWMutex
-	store map[string]*domain.Workspace
+	mu            sync.RWMutex
+	store         map[string]*domain.Workspace
+	SaveCallCount int
+	LastSavedID   string
 }
 
 // NewFakeRepo は空の FakeRepo を返す。
@@ -55,6 +57,8 @@ func (r *FakeRepo) Save(_ context.Context, w *domain.Workspace) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.store[w.ID().String()] = w
+	r.SaveCallCount++
+	r.LastSavedID = w.ID().String()
 	return nil
 }
 

@@ -37,6 +37,12 @@ func TestCreateWorkspaceHandler_Handle_Success(t *testing.T) {
 	if saved.Name().String() != "My Workspace" {
 		t.Errorf("expected name %q, got %q", "My Workspace", saved.Name().String())
 	}
+	if repo.SaveCallCount != 1 {
+		t.Errorf("expected SaveCallCount 1, got %d", repo.SaveCallCount)
+	}
+	if repo.LastSavedID != "ws-001" {
+		t.Errorf("expected LastSavedID %q, got %q", "ws-001", repo.LastSavedID)
+	}
 }
 
 func TestCreateWorkspaceHandler_Handle_EmptyName(t *testing.T) {

@@ -2,6 +2,7 @@ package query_test
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"testing"
 
@@ -10,14 +11,6 @@ import (
 	"github.com/ysksm/multi-terminals/core/application/query"
 	"github.com/ysksm/multi-terminals/core/domain"
 )
-
-// helper: ワークスペースを FakeRepo に直接保存するユーティリティ
-func mustSaveWorkspace(t *testing.T, repo domain.WorkspaceRepository, w *domain.Workspace) {
-	t.Helper()
-	if err := repo.Save(context.Background(), w); err != nil {
-		t.Fatalf("save workspace: %v", err)
-	}
-}
 
 // helper: シンプルなワークスペースを生成して保存する
 func mustCreateWorkspace(t *testing.T, repo domain.WorkspaceRepository, idgen interface{ NewID() string }, name, layout string) string {
@@ -73,6 +66,9 @@ func TestGetWorkspaceHandler_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
+	if !errors.Is(err, domain.ErrWorkspaceNotFound) {
+		t.Errorf("expected ErrWorkspaceNotFound, got %v", err)
+	}
 }
 
 // TestGetWorkspaceHandler_InvalidID は無効な ID でエラーが返ることを確認する。
@@ -115,6 +111,33 @@ func TestListWorkspacesHandler_Multiple(t *testing.T) {
 	}
 	if len(dtos) != 2 {
 		t.Errorf("expected 2 DTOs, got %d", len(dtos))
+	}
+}
+
+// TestListWorkspacesHandler_SortedByID は ListWorkspaces の結果が ID 昇順で返ることを確認する。
+func TestListWorkspacesHandler_SortedByID(t *testing.T) {
+	repo := apptest.NewFakeRepo()
+	// ids intentionally out of lexicographic order: "ws-b" before "ws-a"
+	idgen := apptest.NewFakeIDGen("ws-b", "ws-a")
+	mustCreateWorkspace(t, repo, idgen, "Workspace B", "single")
+	mustCreateWorkspace(t, repo, idgen, "Workspace A", "single")
+
+	h := query.NewListWorkspacesHandler(repo)
+	dtos, err := h.Handle(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(dtos) != 2 {
+		t.Fatalf("expected 2 DTOs, got %d", len(dtos))
+	}
+	if !sort.SliceIsSorted(dtos, func(i, j int) bool { return dtos[i].ID < dtos[j].ID }) {
+		t.Errorf("DTOs not sorted by ID ascending: got %q, %q", dtos[0].ID, dtos[1].ID)
+	}
+	if dtos[0].ID != "ws-a" {
+		t.Errorf("first DTO ID: got %q, want %q", dtos[0].ID, "ws-a")
+	}
+	if dtos[1].ID != "ws-b" {
+		t.Errorf("second DTO ID: got %q, want %q", dtos[1].ID, "ws-b")
 	}
 }
 

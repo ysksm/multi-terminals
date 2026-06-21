@@ -40,6 +40,13 @@ func TestChangeLayoutHandler_Handle_Success(t *testing.T) {
 	if saved.Layout() != domain.LayoutSplitVertical {
 		t.Errorf("expected layout %q, got %q", domain.LayoutSplitVertical, saved.Layout())
 	}
+	// 1 for create + 1 for change layout
+	if repo.SaveCallCount != 2 {
+		t.Errorf("expected SaveCallCount 2, got %d", repo.SaveCallCount)
+	}
+	if repo.LastSavedID != "ws-001" {
+		t.Errorf("expected LastSavedID %q, got %q", "ws-001", repo.LastSavedID)
+	}
 }
 
 func TestChangeLayoutHandler_Handle_NotFound(t *testing.T) {
