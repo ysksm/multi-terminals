@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/ysksm/multi-terminals/core/application/apptest"
 	"github.com/ysksm/multi-terminals/core/application/command"
@@ -15,7 +16,8 @@ func TestClosePaneHandler_Handle_Success(t *testing.T) {
 	reg := session.NewRegistry()
 
 	fakeSess := apptest.NewFakeTerminalSession("pane-1")
-	reg.Add("pane-1", fakeSess)
+	hub := session.NewSession(fakeSess)
+	reg.Add("pane-1", hub)
 
 	handler := command.NewClosePaneHandler(reg)
 	err := handler.Handle(ctx, command.ClosePaneCommand{PaneID: "pane-1"})
@@ -28,12 +30,12 @@ func TestClosePaneHandler_Handle_Success(t *testing.T) {
 		t.Error("expected session to be removed from registry after close")
 	}
 
-	// Session's Done channel should be closed.
+	// Hub's Done channel should close after inner close propagates.
 	select {
-	case <-fakeSess.Done():
+	case <-hub.Done():
 		// ok
-	default:
-		t.Error("expected session Done channel to be closed")
+	case <-time.After(3 * time.Second):
+		t.Error("expected hub Done channel to be closed")
 	}
 }
 

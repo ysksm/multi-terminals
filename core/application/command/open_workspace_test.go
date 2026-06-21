@@ -122,12 +122,11 @@ func TestOpenWorkspaceHandler_AutoRunOnly(t *testing.T) {
 		t.Fatalf("Handle: %v", err)
 	}
 
-	// Only autoRun commands should be written
-	sess, ok := reg.Get("pane-0")
-	if !ok {
-		t.Fatal("session for pane-0 not found")
+	// Retrieve writes via FakeTerminalRunner.Session() since registry now holds *session.Session.
+	fakeSess := runner.Session("pane-0")
+	if fakeSess == nil {
+		t.Fatal("runner.Session('pane-0') returned nil")
 	}
-	fakeSess := sess.(*apptest.FakeTerminalSession)
 	// Access Writes after Handle returns — single-goroutine, no race.
 	writes := fakeSess.Writes
 
@@ -182,41 +181,59 @@ func TestOpenWorkspaceHandler_WorkspaceNotFound(t *testing.T) {
 	}
 }
 
-func TestOpenWorkspaceHandler_ClosesExistingSession(t *testing.T) {
+// TestOpenWorkspaceHandler_ResumesExistingSession verifies that if a live session
+// already exists for a pane, OpenWorkspace resumes it instead of restarting.
+func TestOpenWorkspaceHandler_ResumesExistingSession(t *testing.T) {
 	ctx := context.Background()
 	repo := apptest.NewFakeRepo()
 	runner := apptest.NewFakeTerminalRunner()
 	reg := session.NewRegistry()
 	state := apptest.NewFakeAppStateStore()
 
-	// Pre-register an existing session for pane-0
-	existing := apptest.NewFakeTerminalSession("pane-0")
-	reg.Add("pane-0", existing)
-
-	pane0 := makePane(t, "pane-0", "/tmp", 0, nil)
+	pane0 := makePane(t, "pane-0", "/tmp", 0, []domain.StartupCommand{
+		makeStartupCmd(t, "echo hello", true),
+	})
 	createWorkspaceWithPanes(t, repo, "ws-1", []*domain.Pane{pane0})
 
 	handler := command.NewOpenWorkspaceHandler(repo, runner, reg, state, "/bin/sh")
-	_, err := handler.Handle(ctx, command.OpenWorkspaceCommand{WorkspaceID: "ws-1"})
+
+	// First open — starts session normally.
+	result1, err := handler.Handle(ctx, command.OpenWorkspaceCommand{WorkspaceID: "ws-1"})
 	if err != nil {
-		t.Fatalf("Handle: %v", err)
+		t.Fatalf("first Handle: %v", err)
+	}
+	if len(result1.Panes) != 1 {
+		t.Fatalf("expected 1 pane in first result, got %d", len(result1.Panes))
+	}
+	if len(runner.Started) != 1 {
+		t.Fatalf("expected 1 Start call after first open, got %d", len(runner.Started))
 	}
 
-	// The existing session should have been closed (Done channel should be closed)
-	select {
-	case <-existing.Done():
-		// ok — was closed
-	default:
-		t.Error("expected existing session to be closed before replacing")
+	// Second open — must resume, not restart.
+	result2, err := handler.Handle(ctx, command.OpenWorkspaceCommand{WorkspaceID: "ws-1"})
+	if err != nil {
+		t.Fatalf("second Handle: %v", err)
+	}
+	if len(result2.Panes) != 1 {
+		t.Fatalf("expected 1 pane in resume result, got %d", len(result2.Panes))
+	}
+	if result2.Panes[0].PaneID != "pane-0" {
+		t.Errorf("expected paneID 'pane-0', got %q", result2.Panes[0].PaneID)
 	}
 
-	// New session should be in registry
-	newSess, ok := reg.Get("pane-0")
-	if !ok {
-		t.Fatal("expected new session in registry")
+	// Runner.Start must NOT have been called again.
+	if len(runner.Started) != 1 {
+		t.Errorf("expected runner.Start NOT called on resume, but got %d calls", len(runner.Started))
 	}
-	if newSess == existing {
-		t.Error("expected a new session, not the old one")
+
+	// autoRun must NOT have been re-sent on resume.
+	fakeSess := runner.Session("pane-0")
+	if fakeSess == nil {
+		t.Fatal("runner.Session('pane-0') returned nil")
+	}
+	// Only 1 write from the first open, none from resume.
+	if len(fakeSess.Writes) != 1 {
+		t.Errorf("expected 1 autoRun write (from first open only), got %d", len(fakeSess.Writes))
 	}
 }
 

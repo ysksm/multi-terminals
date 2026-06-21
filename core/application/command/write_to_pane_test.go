@@ -15,7 +15,8 @@ func TestWriteToPaneHandler_Handle_Success(t *testing.T) {
 	reg := session.NewRegistry()
 
 	fakeSess := apptest.NewFakeTerminalSession("pane-1")
-	reg.Add("pane-1", fakeSess)
+	hub := session.NewSession(fakeSess)
+	reg.Add("pane-1", hub)
 
 	handler := command.NewWriteToPaneHandler(reg)
 	err := handler.Handle(ctx, command.WriteToPaneCommand{
@@ -26,7 +27,7 @@ func TestWriteToPaneHandler_Handle_Success(t *testing.T) {
 		t.Fatalf("Handle: %v", err)
 	}
 
-	// Verify the data was written to the session.
+	// Verify the data was written to the inner fake session.
 	writes := fakeSess.Writes
 	if len(writes) != 1 {
 		t.Fatalf("expected 1 write, got %d", len(writes))

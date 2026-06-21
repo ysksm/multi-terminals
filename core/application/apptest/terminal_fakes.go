@@ -106,16 +106,18 @@ func (s *FakeTerminalSession) Close() error {
 }
 
 // FakeTerminalRunner is a test implementation of port.TerminalRunner.
-// Each call to Start creates a FakeTerminalSession and records the request.
+// Each call to Start creates a FakeTerminalSession, records the request, and
+// stores the session so tests can retrieve it via Session(id).
 type FakeTerminalRunner struct {
 	mu       sync.Mutex
 	Started  []port.TerminalStartRequest
 	StartErr error
+	sessions map[string]*FakeTerminalSession
 }
 
 // NewFakeTerminalRunner returns a new FakeTerminalRunner.
 func NewFakeTerminalRunner() *FakeTerminalRunner {
-	return &FakeTerminalRunner{}
+	return &FakeTerminalRunner{sessions: make(map[string]*FakeTerminalSession)}
 }
 
 // Start records req and returns a new FakeTerminalSession (or StartErr if set).
@@ -126,5 +128,15 @@ func (r *FakeTerminalRunner) Start(_ context.Context, req port.TerminalStartRequ
 		return nil, r.StartErr
 	}
 	r.Started = append(r.Started, req)
-	return NewFakeTerminalSession(req.SessionID), nil
+	s := NewFakeTerminalSession(req.SessionID)
+	r.sessions[req.SessionID] = s
+	return s, nil
+}
+
+// Session returns the FakeTerminalSession created for the given session ID, or
+// nil if no session with that ID was started. Safe for concurrent use.
+func (r *FakeTerminalRunner) Session(id string) *FakeTerminalSession {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.sessions[id]
 }
