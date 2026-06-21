@@ -97,6 +97,8 @@ func mapErr(w http.ResponseWriter, err error) {
 		msg := err.Error()
 		if isValidationError(msg) {
 			status = http.StatusBadRequest
+		} else if isNotFoundError(msg) {
+			status = http.StatusNotFound
 		}
 	}
 	writeJSON(w, status, map[string]string{"error": err.Error()})
@@ -111,6 +113,19 @@ func isValidationError(msg string) bool {
 	lower := errors.New(msg).Error()
 	for _, p := range prefixes {
 		if len(lower) >= len(p) && lower[:len(p)] == p {
+			return true
+		}
+	}
+	return false
+}
+
+// isNotFoundError returns true for errors that should map to HTTP 404.
+// It detects "not found" suffix patterns from domain pane/entity errors
+// that are not covered by sentinel errors.
+func isNotFoundError(msg string) bool {
+	suffixes := []string{"not found"}
+	for _, s := range suffixes {
+		if len(msg) >= len(s) && msg[len(msg)-len(s):] == s {
 			return true
 		}
 	}
