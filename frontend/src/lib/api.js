@@ -31,6 +31,7 @@ export const api = {
   restoreLayout: (id) => req('POST', `/api/workspaces/${id}/restore`),
   setActivePane: (id, paneId) => req('POST', `/api/workspaces/${id}/active-pane`, { paneId }),
   lastOpened: () => req('GET', '/api/last-opened'),
+  listSessions: () => req('GET', '/api/sessions'),
   addPane: (id, directory, slot, commands) =>
     req('POST', `/api/workspaces/${id}/panes`, { directory, slot, commands }),
   removePane: (id, paneId) => req('DELETE', `/api/workspaces/${id}/panes/${paneId}`),
