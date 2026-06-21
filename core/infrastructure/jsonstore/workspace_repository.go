@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/ysksm/multi-terminals/core/domain"
@@ -104,13 +105,59 @@ func (r *WorkspaceRepository) FindByID(ctx context.Context, id domain.WorkspaceI
 }
 
 // List returns all workspaces stored under r.dir.
-// Stub implementation — will be replaced in Task 4.
+// Only files with a ".json" extension are considered. An empty directory returns
+// an empty (non-nil) slice. A single file that cannot be parsed fails the whole
+// call with an error that includes the filename.
 func (r *WorkspaceRepository) List(ctx context.Context) ([]*domain.Workspace, error) {
-	return nil, nil
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	entries, err := os.ReadDir(r.dir)
+	if err != nil {
+		return nil, fmt.Errorf("reading workspaces directory %q: %w", r.dir, err)
+	}
+
+	workspaces := make([]*domain.Workspace, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		path := filepath.Join(r.dir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("reading workspace file %q: %w", entry.Name(), err)
+		}
+
+		var rec workspaceRecord
+		if err := json.Unmarshal(data, &rec); err != nil {
+			return nil, fmt.Errorf("unmarshalling workspace file %q: %w", entry.Name(), err)
+		}
+
+		ws, err := toDomain(rec)
+		if err != nil {
+			return nil, fmt.Errorf("converting record from %q to domain: %w", entry.Name(), err)
+		}
+
+		workspaces = append(workspaces, ws)
+	}
+
+	return workspaces, nil
 }
 
 // Delete removes the workspace file for the given id.
-// Stub implementation — will be replaced in Task 4.
+// Returns domain.ErrWorkspaceNotFound if no file exists for that id.
 func (r *WorkspaceRepository) Delete(ctx context.Context, id domain.WorkspaceId) error {
+	path := r.pathFor(id.String())
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if err := os.Remove(path); err != nil {
+		if os.IsNotExist(err) {
+			return domain.ErrWorkspaceNotFound
+		}
+		return fmt.Errorf("deleting workspace file %q: %w", path, err)
+	}
 	return nil
 }

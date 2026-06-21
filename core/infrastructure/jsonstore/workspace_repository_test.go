@@ -137,3 +137,110 @@ func TestFindByIDNotFound(t *testing.T) {
 		t.Errorf("expected ErrWorkspaceNotFound, got: %v", err)
 	}
 }
+
+// TestListEmpty verifies that List returns an empty (non-nil) slice when no workspaces exist.
+func TestListEmpty(t *testing.T) {
+	base := t.TempDir()
+	repo, err := NewWorkspaceRepository(base)
+	if err != nil {
+		t.Fatalf("NewWorkspaceRepository: %v", err)
+	}
+
+	ctx := context.Background()
+	got, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("expected 0 workspaces, got %d", len(got))
+	}
+}
+
+// TestListMultiple verifies that List returns all saved workspaces.
+func TestListMultiple(t *testing.T) {
+	base := t.TempDir()
+	repo, err := NewWorkspaceRepository(base)
+	if err != nil {
+		t.Fatalf("NewWorkspaceRepository: %v", err)
+	}
+
+	ctx := context.Background()
+	w1 := buildRepoWorkspace(t, "ws-list-1", "List WS 1")
+	w2 := buildRepoWorkspace(t, "ws-list-2", "List WS 2")
+
+	if err := repo.Save(ctx, w1); err != nil {
+		t.Fatalf("Save w1: %v", err)
+	}
+	if err := repo.Save(ctx, w2); err != nil {
+		t.Fatalf("Save w2: %v", err)
+	}
+
+	got, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(got) != 2 {
+		t.Errorf("expected 2 workspaces, got %d", len(got))
+	}
+
+	// Verify both IDs are present
+	ids := make(map[string]bool)
+	for _, ws := range got {
+		ids[ws.ID().String()] = true
+	}
+	if !ids["ws-list-1"] {
+		t.Error("ws-list-1 not found in List result")
+	}
+	if !ids["ws-list-2"] {
+		t.Error("ws-list-2 not found in List result")
+	}
+}
+
+// TestDeleteNormal verifies that Delete removes a workspace and FindByID returns ErrWorkspaceNotFound.
+func TestDeleteNormal(t *testing.T) {
+	base := t.TempDir()
+	repo, err := NewWorkspaceRepository(base)
+	if err != nil {
+		t.Fatalf("NewWorkspaceRepository: %v", err)
+	}
+
+	ctx := context.Background()
+	w := buildRepoWorkspace(t, "ws-delete-1", "Delete WS")
+
+	if err := repo.Save(ctx, w); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if err := repo.Delete(ctx, w.ID()); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	// FindByID must now return ErrWorkspaceNotFound
+	_, err = repo.FindByID(ctx, w.ID())
+	if err == nil {
+		t.Fatal("expected ErrWorkspaceNotFound after delete, got nil")
+	}
+	if !errors.Is(err, domain.ErrWorkspaceNotFound) {
+		t.Errorf("expected ErrWorkspaceNotFound, got: %v", err)
+	}
+}
+
+// TestDeleteNotFound verifies that Delete returns ErrWorkspaceNotFound for a non-existent ID.
+func TestDeleteNotFound(t *testing.T) {
+	base := t.TempDir()
+	repo, err := NewWorkspaceRepository(base)
+	if err != nil {
+		t.Fatalf("NewWorkspaceRepository: %v", err)
+	}
+
+	ctx := context.Background()
+	missingID, _ := domain.NewWorkspaceId("ws-delete-missing")
+
+	err = repo.Delete(ctx, missingID)
+	if err == nil {
+		t.Fatal("expected ErrWorkspaceNotFound, got nil")
+	}
+	if !errors.Is(err, domain.ErrWorkspaceNotFound) {
+		t.Errorf("expected ErrWorkspaceNotFound, got: %v", err)
+	}
+}
