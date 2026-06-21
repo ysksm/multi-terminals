@@ -97,8 +97,8 @@ cmd_web() {
     echo "apps/web はまだ存在しません（Web アダプタは今後の実装計画です）。" >&2
     exit 1
   fi
-  echo ">> go run ./apps/web"
-  go run ./apps/web "$@"
+  echo ">> go run ./apps/web/cmd"
+  go run ./apps/web/cmd "$@"
 }
 
 cmd_wails() {

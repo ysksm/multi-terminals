@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/domain"
 )
 
@@ -28,7 +29,7 @@ func NewSetPaneDirectoryHandler(repo domain.WorkspaceRepository) *SetPaneDirecto
 func (h *SetPaneDirectoryHandler) Handle(ctx context.Context, cmd SetPaneDirectoryCommand) error {
 	wsID, err := domain.NewWorkspaceId(cmd.WorkspaceID)
 	if err != nil {
-		return fmt.Errorf("set pane directory: invalid workspace id: %w", err)
+		return apperr.Validation(fmt.Errorf("set pane directory: invalid workspace id: %w", err))
 	}
 
 	w, err := h.repo.FindByID(ctx, wsID)
@@ -38,16 +39,16 @@ func (h *SetPaneDirectoryHandler) Handle(ctx context.Context, cmd SetPaneDirecto
 
 	paneID, err := domain.NewPaneId(cmd.PaneID)
 	if err != nil {
-		return fmt.Errorf("set pane directory: invalid pane id: %w", err)
+		return apperr.Validation(fmt.Errorf("set pane directory: invalid pane id: %w", err))
 	}
 
 	dir, err := domain.NewDirectoryPath(cmd.Directory)
 	if err != nil {
-		return fmt.Errorf("set pane directory: invalid directory: %w", err)
+		return apperr.Validation(fmt.Errorf("set pane directory: invalid directory: %w", err))
 	}
 
 	if err := w.SetPaneDirectory(paneID, dir); err != nil {
-		return fmt.Errorf("set pane directory: %w", err)
+		return apperr.Validation(fmt.Errorf("set pane directory: %w", err))
 	}
 
 	if err := h.repo.Save(ctx, w); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/domain"
 )
 
@@ -28,7 +29,7 @@ func NewSetPaneStartupCommandsHandler(repo domain.WorkspaceRepository) *SetPaneS
 func (h *SetPaneStartupCommandsHandler) Handle(ctx context.Context, cmd SetPaneStartupCommandsCommand) error {
 	wsID, err := domain.NewWorkspaceId(cmd.WorkspaceID)
 	if err != nil {
-		return fmt.Errorf("set pane startup commands: invalid workspace id: %w", err)
+		return apperr.Validation(fmt.Errorf("set pane startup commands: invalid workspace id: %w", err))
 	}
 
 	w, err := h.repo.FindByID(ctx, wsID)
@@ -38,20 +39,20 @@ func (h *SetPaneStartupCommandsHandler) Handle(ctx context.Context, cmd SetPaneS
 
 	paneID, err := domain.NewPaneId(cmd.PaneID)
 	if err != nil {
-		return fmt.Errorf("set pane startup commands: invalid pane id: %w", err)
+		return apperr.Validation(fmt.Errorf("set pane startup commands: invalid pane id: %w", err))
 	}
 
 	startupCmds := make([]domain.StartupCommand, 0, len(cmd.Commands))
 	for _, c := range cmd.Commands {
 		sc, err := domain.NewStartupCommand(c.Command, c.AutoRun)
 		if err != nil {
-			return fmt.Errorf("set pane startup commands: invalid startup command: %w", err)
+			return apperr.Validation(fmt.Errorf("set pane startup commands: invalid startup command: %w", err))
 		}
 		startupCmds = append(startupCmds, sc)
 	}
 
 	if err := w.SetPaneStartupCommands(paneID, startupCmds); err != nil {
-		return fmt.Errorf("set pane startup commands: %w", err)
+		return apperr.Validation(fmt.Errorf("set pane startup commands: %w", err))
 	}
 
 	if err := h.repo.Save(ctx, w); err != nil {

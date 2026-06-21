@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/domain"
 )
 
@@ -27,7 +28,7 @@ func NewMaximizePaneHandler(repo domain.WorkspaceRepository) *MaximizePaneHandle
 func (h *MaximizePaneHandler) Handle(ctx context.Context, cmd MaximizePaneCommand) error {
 	wsID, err := domain.NewWorkspaceId(cmd.WorkspaceID)
 	if err != nil {
-		return fmt.Errorf("maximize pane: invalid workspace id: %w", err)
+		return apperr.Validation(fmt.Errorf("maximize pane: invalid workspace id: %w", err))
 	}
 
 	w, err := h.repo.FindByID(ctx, wsID)
@@ -37,11 +38,11 @@ func (h *MaximizePaneHandler) Handle(ctx context.Context, cmd MaximizePaneComman
 
 	paneID, err := domain.NewPaneId(cmd.PaneID)
 	if err != nil {
-		return fmt.Errorf("maximize pane: invalid pane id: %w", err)
+		return apperr.Validation(fmt.Errorf("maximize pane: invalid pane id: %w", err))
 	}
 
 	if err := w.MaximizePane(paneID); err != nil {
-		return fmt.Errorf("maximize pane: %w", err)
+		return apperr.Validation(fmt.Errorf("maximize pane: %w", err))
 	}
 
 	if err := h.repo.Save(ctx, w); err != nil {

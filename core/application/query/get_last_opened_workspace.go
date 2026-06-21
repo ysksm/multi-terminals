@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/application/port"
 	"github.com/ysksm/multi-terminals/core/domain"
 )
@@ -37,7 +38,7 @@ func (h *GetLastOpenedWorkspaceHandler) Handle(ctx context.Context) (WorkspaceDT
 
 	wsID, err := domain.NewWorkspaceId(wsIDStr)
 	if err != nil {
-		return WorkspaceDTO{}, false, fmt.Errorf("get last opened workspace: invalid workspace id %q: %w", wsIDStr, err)
+		return WorkspaceDTO{}, false, apperr.Validation(fmt.Errorf("get last opened workspace: invalid workspace id %q: %w", wsIDStr, err))
 	}
 
 	w, err := h.repo.FindByID(ctx, wsID)

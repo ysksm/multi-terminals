@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/domain"
 )
 
@@ -27,7 +28,7 @@ func NewRemovePaneHandler(repo domain.WorkspaceRepository) *RemovePaneHandler {
 func (h *RemovePaneHandler) Handle(ctx context.Context, cmd RemovePaneCommand) error {
 	wsID, err := domain.NewWorkspaceId(cmd.WorkspaceID)
 	if err != nil {
-		return fmt.Errorf("remove pane: invalid workspace id: %w", err)
+		return apperr.Validation(fmt.Errorf("remove pane: invalid workspace id: %w", err))
 	}
 
 	w, err := h.repo.FindByID(ctx, wsID)
@@ -37,11 +38,11 @@ func (h *RemovePaneHandler) Handle(ctx context.Context, cmd RemovePaneCommand) e
 
 	paneID, err := domain.NewPaneId(cmd.PaneID)
 	if err != nil {
-		return fmt.Errorf("remove pane: invalid pane id: %w", err)
+		return apperr.Validation(fmt.Errorf("remove pane: invalid pane id: %w", err))
 	}
 
 	if err := w.RemovePane(paneID); err != nil {
-		return fmt.Errorf("remove pane: %w", err)
+		return apperr.Validation(fmt.Errorf("remove pane: %w", err))
 	}
 
 	if err := h.repo.Save(ctx, w); err != nil {

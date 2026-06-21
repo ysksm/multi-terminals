@@ -8,26 +8,26 @@ import (
 
 // StartupCommandDTO は StartupCommand の読み取り DTO。
 type StartupCommandDTO struct {
-	Command string
-	AutoRun bool
+	Command string `json:"command"`
+	AutoRun bool   `json:"autoRun"`
 }
 
 // PaneDTO は Pane の読み取り DTO。
 type PaneDTO struct {
-	ID        string
-	Directory string
-	Slot      int
-	Commands  []StartupCommandDTO
+	ID        string             `json:"id"`
+	Directory string             `json:"directory"`
+	Slot      int                `json:"slot"`
+	Commands  []StartupCommandDTO `json:"commands"`
 }
 
 // WorkspaceDTO は Workspace の読み取り DTO。
 type WorkspaceDTO struct {
-	ID               string
-	Name             string
-	Layout           string
-	Panes            []PaneDTO
-	LastActivePaneID *string
-	MaximizedPaneID  *string
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Layout           string    `json:"layout"`
+	Panes            []PaneDTO `json:"panes"`
+	LastActivePaneID *string   `json:"lastActivePaneId,omitempty"`
+	MaximizedPaneID  *string   `json:"maximizedPaneId,omitempty"`
 }
 
 // toWorkspaceDTO は domain.Workspace を WorkspaceDTO に変換する。
