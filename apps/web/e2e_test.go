@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,16 @@ import (
 // WebSocket connect -> send a shell command -> receive the shell's output.
 // This is the definitive proof that the browser-facing path works.
 func TestEndToEndRealPTYOverWebSocket(t *testing.T) {
+	// Pick a deterministic shell and line ending per OS. On Windows the default
+	// shell is PowerShell, whose interactive ANSI redraw splits the marker and
+	// whose continuation prompt swallows a bare "\n"; cmd.exe (also used by the
+	// terminal runner tests) echoes the command line and its output verbatim.
+	newline := "\n"
+	if runtime.GOOS == "windows" {
+		t.Setenv("MULTI_TERMINALS_SHELL", "cmd.exe")
+		newline = "\r\n"
+	}
+
 	deps, err := BuildDeps(t.TempDir())
 	if err != nil {
 		t.Fatalf("BuildDeps: %v", err)
@@ -70,6 +81,21 @@ func TestEndToEndRealPTYOverWebSocket(t *testing.T) {
 		t.Fatalf("expected 1 opened pane, got %v", opened)
 	}
 
+	// Ensure the spawned shell is fully terminated before the test's TempDir
+	// cleanup runs. On Windows a running process holds its working directory
+	// (the pane's TempDir) open, so RemoveAll fails unless we wait for the
+	// process to exit. t.Cleanup is LIFO, so this runs before the TempDir
+	// removals registered above.
+	t.Cleanup(func() {
+		if s, ok := deps.Registry.Get(paneID); ok {
+			_ = s.Close()
+			select {
+			case <-s.Done():
+			case <-time.After(5 * time.Second):
+			}
+		}
+	})
+
 	// 4. connect a WebSocket to the pane's I/O endpoint
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/panes/" + paneID + "/io"
 	conn, dialResp, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -86,7 +112,7 @@ func TestEndToEndRealPTYOverWebSocket(t *testing.T) {
 
 	// 5. send a shell command
 	const marker = "e2e_marker_98765"
-	input, _ := json.Marshal(map[string]any{"type": "input", "data": "echo " + marker + "\n"})
+	input, _ := json.Marshal(map[string]any{"type": "input", "data": "echo " + marker + newline})
 	if err := conn.WriteMessage(websocket.TextMessage, input); err != nil {
 		t.Fatalf("ws write: %v", err)
 	}
