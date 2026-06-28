@@ -37,3 +37,10 @@ multi-terminals-windows-amd64.exe
 244c03b0a23baeb3b9a287ce1432cacdb5f4c16f22edee785fba8b020a3a5334  multi-terminals-windows-amd64.exe
 5f7ad47ebb4bd75d45418f246ff3ab1cc15552fc1e412a1103d5bb4783423f65  multi-terminals-windows-arm64.exe
 ```
+
+## デスクトップ版（Wails）について
+
+`multi-terminals.app`（macOS）/ `multi-terminals.exe`（Windows）は Wails 製の
+デスクトップ版です。サーバ版と異なりブラウザ不要・ネットワークポート不使用で
+起動します。**未署名**のため、初回起動時に Gatekeeper（macOS）/ SmartScreen
+（Windows）の警告が出る場合があります。

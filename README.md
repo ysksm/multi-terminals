@@ -67,6 +67,27 @@ cd frontend; npm install; npm run dev
 ブラウザで **http://localhost:8080** を開く（UI が組み込み配信されます。Vite は不要）。
 Windows でも同様にバイナリ1つで動きます（PowerShell: `go build -o bin/multi-terminals.exe ./apps/web/cmd` で frontend 組み込みビルドするには先に `cd frontend; npm run build` 後、`apps/web/webui/dist` へ配置）。最も簡単なのは `scripts/dev.sh build`（Git Bash 等）です。
 
+## デスクトップ版（Wails）
+
+`apps/wails` は Wails によるネイティブデスクトップ版です。REST/SPA は既存の
+mux を在プロセス配信し、端末 I/O は Go↔JS バインディングで動きます（ネット
+ワークポートを開きません）。
+
+```sh
+# 前提: wails CLI（go install github.com/wailsapp/wails/v2/cmd/wails@latest）
+cd apps/wails && wails dev      # 開発実行
+```
+
+ビルド（**クロスコンパイル不可**。Windows 版は Windows 上、macOS 版は macOS 上で）:
+
+```sh
+./scripts/build-all.sh all      # web バイナリ + 実行 OS 向け Wails 成果物
+./scripts/build-all.sh wails    # Wails のみ
+```
+
+Windows / macOS 両方の成果物は GitHub Actions（`.github/workflows/build.yml`）で
+ネイティブランナー上から取得できます。
+
 ## 環境変数
 
 | 変数 | 既定 | 説明 |
