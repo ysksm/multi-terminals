@@ -10,8 +10,11 @@ require (
 
 require (
 	github.com/creack/pty v1.1.24 // indirect
+	github.com/leaanthony/go-ansi-parser v1.6.1 // indirect
 	github.com/leaanthony/slicer v1.6.0 // indirect
 	github.com/leaanthony/u v1.1.1 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/u-root/u-root v0.16.0 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect

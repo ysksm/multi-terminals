@@ -1,0 +1,11 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "multi-terminals",
+  "outputfilename": "multi-terminals",
+  "frontend:dir": "../../frontend",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "author": {
+    "name": "ysksm"
+  }
+}
