@@ -38,6 +38,7 @@ func buildTestDeps(t *testing.T) web.Deps {
 		AddPane:         command.NewAddPaneHandler(repo, idgen),
 		RemovePane:      command.NewRemovePaneHandler(repo),
 		SetDir:          command.NewSetPaneDirectoryHandler(repo),
+		SetTitle:        command.NewSetPaneTitleHandler(repo),
 		SetCmds:         command.NewSetPaneStartupCommandsHandler(repo),
 		Open:            command.NewOpenWorkspaceHandler(repo, runner, reg, state, "/bin/sh"),
 		Write:           command.NewWriteToPaneHandler(reg),
@@ -837,4 +838,64 @@ func TestDeleteWorkspaceGetAfterDelete(t *testing.T) {
 	if getW.Code != http.StatusNotFound {
 		t.Fatalf("get after delete: expected 404, got %d: %s", getW.Code, getW.Body.String())
 	}
+}
+
+// TestSetPaneTitleEndpoint verifies that PUT /api/workspaces/{id}/panes/{paneId}/title
+// returns 204 and the title is reflected in subsequent GET.
+func TestSetPaneTitleEndpoint(t *testing.T) {
+	deps := buildTestDeps(t)
+	mux := web.NewMux(deps)
+
+	// Create workspace
+	w := doRequest(mux, http.MethodPost, "/api/workspaces", `{"name":"WS","layout":"single"}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create workspace: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var cr map[string]string
+	json.NewDecoder(w.Body).Decode(&cr)
+	wsID := cr["id"]
+
+	// Add a pane
+	addW := doRequest(mux, http.MethodPost, "/api/workspaces/"+wsID+"/panes",
+		`{"directory":"/tmp","slot":0,"commands":[]}`)
+	if addW.Code != http.StatusCreated {
+		t.Fatalf("add pane: expected 201, got %d: %s", addW.Code, addW.Body.String())
+	}
+	var addResp map[string]string
+	json.NewDecoder(addW.Body).Decode(&addResp)
+	paneID := addResp["paneId"]
+
+	// PUT title
+	putW := doRequest(mux, http.MethodPut,
+		"/api/workspaces/"+wsID+"/panes/"+paneID+"/title",
+		`{"title":"My Server"}`)
+	if putW.Code != http.StatusNoContent {
+		t.Fatalf("PUT title: got %d, want 204; body=%s", putW.Code, putW.Body.String())
+	}
+
+	// GET workspace — title should be reflected in the pane DTO
+	getW := doRequest(mux, http.MethodGet, "/api/workspaces/"+wsID, "")
+	if getW.Code != http.StatusOK {
+		t.Fatalf("get workspace: expected 200, got %d: %s", getW.Code, getW.Body.String())
+	}
+	var dto map[string]interface{}
+	if err := json.NewDecoder(getW.Body).Decode(&dto); err != nil {
+		t.Fatalf("decode get response: %v", err)
+	}
+	panes, _ := dto["panes"].([]interface{})
+	found := false
+	for _, p := range panes {
+		pm, _ := p.(map[string]interface{})
+		if pm["id"] == paneID {
+			found = true
+			if pm["title"] != "My Server" {
+				t.Fatalf("title not reflected: got %v", pm["title"])
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("pane %q not found in workspace DTO", paneID)
+	}
+
+	_ = deps
 }

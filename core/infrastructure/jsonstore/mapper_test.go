@@ -1,6 +1,7 @@
 package jsonstore
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -26,7 +27,7 @@ func buildTestWorkspace(t *testing.T) *domain.Workspace {
 	dir1, _ := domain.NewDirectoryPath("/home/user")
 	slot1, _ := domain.NewSlotIndex(0)
 	cmd1, _ := domain.NewStartupCommand("bash", true)
-	pane1, err := domain.NewPane(paneID1, dir1, slot1, []domain.StartupCommand{cmd1})
+	pane1, err := domain.NewPane(paneID1, dir1, slot1, domain.PaneTitle{}, []domain.StartupCommand{cmd1})
 	if err != nil {
 		t.Fatalf("NewPane pane1: %v", err)
 	}
@@ -36,7 +37,7 @@ func buildTestWorkspace(t *testing.T) *domain.Workspace {
 	slot2, _ := domain.NewSlotIndex(1)
 	cmd2, _ := domain.NewStartupCommand("vim", false)
 	cmd3, _ := domain.NewStartupCommand("htop", true)
-	pane2, err := domain.NewPane(paneID2, dir2, slot2, []domain.StartupCommand{cmd2, cmd3})
+	pane2, err := domain.NewPane(paneID2, dir2, slot2, domain.PaneTitle{}, []domain.StartupCommand{cmd2, cmd3})
 	if err != nil {
 		t.Fatalf("NewPane pane2: %v", err)
 	}
@@ -214,6 +215,42 @@ func TestToDomainNilOptionalFields(t *testing.T) {
 	}
 	if _, ok := w.MaximizedPaneId(); ok {
 		t.Error("expected MaximizedPaneId to be unset")
+	}
+}
+
+func TestPaneTitleRoundTripAndBackwardCompat(t *testing.T) {
+	// ラウンドトリップ: title を持つ pane を record 化→ドメイン復元で保持される
+	title, _ := domain.NewPaneTitle("API")
+	dir, _ := domain.NewDirectoryPath("/tmp")
+	slot, _ := domain.NewSlotIndex(0)
+	pid, _ := domain.NewPaneId("p1")
+	pane, _ := domain.NewPane(pid, dir, slot, title, nil)
+	wsID, _ := domain.NewWorkspaceId("w1")
+	name, _ := domain.NewWorkspaceName("ws")
+	w, _ := domain.NewWorkspace(wsID, name, domain.LayoutSingle)
+	_ = w.AddPane(pane)
+
+	rec := toRecord(w)
+	got, err := toDomain(rec)
+	if err != nil {
+		t.Fatalf("toDomain: %v", err)
+	}
+	if got.Panes()[0].Title().String() != "API" {
+		t.Fatalf("round-trip lost title: %q", got.Panes()[0].Title().String())
+	}
+
+	// 後方互換: title フィールドが無い JSON を読み込んでも空タイトルで成功する
+	const legacy = `{"version":1,"id":"w1","name":"ws","layout":"single","panes":[{"id":"p1","directory":"/tmp","slot":0,"commands":[]}]}`
+	var lrec workspaceRecord
+	if err := json.Unmarshal([]byte(legacy), &lrec); err != nil {
+		t.Fatalf("unmarshal legacy: %v", err)
+	}
+	lw, err := toDomain(lrec)
+	if err != nil {
+		t.Fatalf("toDomain legacy: %v", err)
+	}
+	if !lw.Panes()[0].Title().IsZero() {
+		t.Fatalf("legacy pane should have empty title, got %q", lw.Panes()[0].Title().String())
 	}
 }
 

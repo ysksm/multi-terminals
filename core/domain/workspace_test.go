@@ -81,7 +81,7 @@ func TestWorkspaceChangeLayout(t *testing.T) {
 
 func newPaneAt(t *testing.T, id string, slot int) *Pane {
 	t.Helper()
-	p, err := NewPane(mustPaneId(t, id), mustDir(t, "/tmp"), mustSlot(t, slot), nil)
+	p, err := NewPane(mustPaneId(t, id), mustDir(t, "/tmp"), mustSlot(t, slot), PaneTitle{}, nil)
 	if err != nil {
 		t.Fatalf("NewPane: %v", err)
 	}
@@ -146,6 +146,27 @@ func TestWorkspaceRemovePane(t *testing.T) {
 	}
 	if err := w.RemovePane(mustPaneId(t, "missing")); err == nil {
 		t.Error("removing missing pane should error")
+	}
+}
+
+func TestWorkspaceSetPaneTitle(t *testing.T) {
+	w := newTestWorkspace(t, LayoutSingle)
+	_ = w.AddPane(newPaneAt(t, "p0", 0))
+	panes := w.Panes()
+	id := panes[0].ID()
+
+	title, _ := NewPaneTitle("API server")
+	if err := w.SetPaneTitle(id, title); err != nil {
+		t.Fatalf("SetPaneTitle: %v", err)
+	}
+	if got := w.Panes()[0].Title().String(); got != "API server" {
+		t.Fatalf("title not set: got %q", got)
+	}
+
+	// 存在しない pane はエラー
+	missing, _ := NewPaneId("does-not-exist")
+	if err := w.SetPaneTitle(missing, title); err == nil {
+		t.Fatal("SetPaneTitle on missing pane: expected error, got nil")
 	}
 }
 

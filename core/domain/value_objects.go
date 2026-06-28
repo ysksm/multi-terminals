@@ -2,7 +2,10 @@ package domain
 
 import (
 	"errors"
+	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // WorkspaceId はワークスペースの一意識別子。
@@ -16,8 +19,8 @@ func NewWorkspaceId(value string) (WorkspaceId, error) {
 }
 
 func (id WorkspaceId) String() string            { return id.value }
-func (id WorkspaceId) IsZero() bool               { return id.value == "" }
-func (id WorkspaceId) Equals(o WorkspaceId) bool  { return id.value == o.value }
+func (id WorkspaceId) IsZero() bool              { return id.value == "" }
+func (id WorkspaceId) Equals(o WorkspaceId) bool { return id.value == o.value }
 
 // PaneId は pane の一意識別子。
 type PaneId struct{ value string }
@@ -29,9 +32,9 @@ func NewPaneId(value string) (PaneId, error) {
 	return PaneId{value: value}, nil
 }
 
-func (id PaneId) String() string        { return id.value }
-func (id PaneId) IsZero() bool           { return id.value == "" }
-func (id PaneId) Equals(o PaneId) bool   { return id.value == o.value }
+func (id PaneId) String() string       { return id.value }
+func (id PaneId) IsZero() bool         { return id.value == "" }
+func (id PaneId) Equals(o PaneId) bool { return id.value == o.value }
 
 // WorkspaceName はワークスペースの表示名（非空）。
 type WorkspaceName struct{ value string }
@@ -67,7 +70,7 @@ func NewSlotIndex(value int) (SlotIndex, error) {
 	return SlotIndex{value: value}, nil
 }
 
-func (s SlotIndex) Int() int             { return s.value }
+func (s SlotIndex) Int() int                { return s.value }
 func (s SlotIndex) Equals(o SlotIndex) bool { return s.value == o.value }
 
 // StartupCommand は pane を開いたときに実行する候補コマンドと自動実行フラグ。
@@ -85,3 +88,27 @@ func NewStartupCommand(command string, autoRun bool) (StartupCommand, error) {
 
 func (c StartupCommand) Command() string { return c.command }
 func (c StartupCommand) AutoRun() bool   { return c.autoRun }
+
+// MaxPaneTitleLen は PaneTitle の最大長（ルーン単位）。
+const MaxPaneTitleLen = 100
+
+// PaneTitle はペインの表示名。空は「未設定」を表す。
+type PaneTitle struct{ value string }
+
+// NewPaneTitle は前後空白をトリムして PaneTitle を生成する。
+// 空は許容（未設定）。最大長超過・制御文字を含む場合はエラー。
+func NewPaneTitle(value string) (PaneTitle, error) {
+	v := strings.TrimSpace(value)
+	if utf8.RuneCountInString(v) > MaxPaneTitleLen {
+		return PaneTitle{}, fmt.Errorf("pane title must be at most %d characters", MaxPaneTitleLen)
+	}
+	for _, r := range v {
+		if unicode.IsControl(r) {
+			return PaneTitle{}, errors.New("pane title must not contain control characters")
+		}
+	}
+	return PaneTitle{value: v}, nil
+}
+
+func (t PaneTitle) String() string { return t.value }
+func (t PaneTitle) IsZero() bool   { return t.value == "" }

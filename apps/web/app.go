@@ -56,6 +56,7 @@ func BuildDeps(baseDir string) (Deps, error) {
 		AddPane:         command.NewAddPaneHandler(repo, idgen),
 		RemovePane:      command.NewRemovePaneHandler(repo),
 		SetDir:          command.NewSetPaneDirectoryHandler(repo),
+		SetTitle:        command.NewSetPaneTitleHandler(repo),
 		SetCmds:         command.NewSetPaneStartupCommandsHandler(repo),
 		Open:            command.NewOpenWorkspaceHandler(repo, runner, reg, state, ""),
 		Write:           command.NewWriteToPaneHandler(reg),

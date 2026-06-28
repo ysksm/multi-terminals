@@ -28,6 +28,7 @@ type Deps struct {
 	AddPane         *command.AddPaneHandler
 	RemovePane      *command.RemovePaneHandler
 	SetDir          *command.SetPaneDirectoryHandler
+	SetTitle        *command.SetPaneTitleHandler
 	SetCmds         *command.SetPaneStartupCommandsHandler
 	Open            *command.OpenWorkspaceHandler
 	Write           *command.WriteToPaneHandler
@@ -61,6 +62,7 @@ func NewMux(d Deps) *http.ServeMux {
 	mux.HandleFunc("POST /api/workspaces/{id}/panes", d.handleAddPane)
 	mux.HandleFunc("DELETE /api/workspaces/{id}/panes/{paneId}", d.handleRemovePane)
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/directory", d.handleSetPaneDirectory)
+	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/title", d.handleSetPaneTitle)
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/commands", d.handleSetPaneCommands)
 
 	// Global queries
@@ -253,6 +255,7 @@ func (d Deps) handleAddPane(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Directory string `json:"directory"`
 		Slot      int    `json:"slot"`
+		Title     string `json:"title"`
 		Commands  []struct {
 			Command string `json:"command"`
 			AutoRun bool   `json:"autoRun"`
@@ -270,6 +273,7 @@ func (d Deps) handleAddPane(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: id,
 		Directory:   body.Directory,
 		Slot:        body.Slot,
+		Title:       body.Title,
 		Commands:    cmds,
 	})
 	if err != nil {
@@ -306,6 +310,27 @@ func (d Deps) handleSetPaneDirectory(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: id,
 		PaneID:      paneID,
 		Directory:   body.Directory,
+	}); err != nil {
+		mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (d Deps) handleSetPaneTitle(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	paneID := r.PathValue("paneId")
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := d.SetTitle.Handle(r.Context(), command.SetPaneTitleCommand{
+		WorkspaceID: id,
+		PaneID:      paneID,
+		Title:       body.Title,
 	}); err != nil {
 		mapErr(w, err)
 		return

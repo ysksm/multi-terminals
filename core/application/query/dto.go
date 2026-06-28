@@ -14,9 +14,10 @@ type StartupCommandDTO struct {
 
 // PaneDTO は Pane の読み取り DTO。
 type PaneDTO struct {
-	ID        string             `json:"id"`
-	Directory string             `json:"directory"`
-	Slot      int                `json:"slot"`
+	ID        string              `json:"id"`
+	Directory string              `json:"directory"`
+	Slot      int                 `json:"slot"`
+	Title     string              `json:"title"`
 	Commands  []StartupCommandDTO `json:"commands"`
 }
 
@@ -54,6 +55,7 @@ func toWorkspaceDTO(w *domain.Workspace) WorkspaceDTO {
 			ID:        p.ID().String(),
 			Directory: p.Directory().String(),
 			Slot:      p.Slot().Int(),
+			Title:     p.Title().String(),
 			Commands:  dtoCommands,
 		}
 	}

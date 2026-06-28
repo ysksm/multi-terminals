@@ -20,6 +20,7 @@ type AddPaneCommand struct {
 	WorkspaceID string
 	Directory   string
 	Slot        int
+	Title       string
 	Commands    []StartupCommandInput
 }
 
@@ -76,7 +77,12 @@ func (h *AddPaneHandler) Handle(ctx context.Context, cmd AddPaneCommand) (AddPan
 		startupCmds = append(startupCmds, sc)
 	}
 
-	pane, err := domain.NewPane(paneID, dir, slot, startupCmds)
+	title, err := domain.NewPaneTitle(cmd.Title)
+	if err != nil {
+		return AddPaneResult{}, apperr.Validation(fmt.Errorf("add pane: invalid title: %w", err))
+	}
+
+	pane, err := domain.NewPane(paneID, dir, slot, title, startupCmds)
 	if err != nil {
 		return AddPaneResult{}, apperr.Validation(fmt.Errorf("add pane: create pane: %w", err))
 	}

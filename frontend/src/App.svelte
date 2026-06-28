@@ -19,6 +19,11 @@
   let paneDir = $state('')
   let paneCmds = $state('')
   let paneAutoRun = $state(true)
+  let paneTitle = $state('')
+
+  // ペインタイトルインライン編集
+  let editingTitlePaneId = $state(null)
+  let titleDraft = $state('')
 
   // サイドバー折りたたみ
   let sidebarCollapsed = $state(localStorage.getItem('mt.sidebarCollapsed') === '1')
@@ -106,6 +111,7 @@
     paneDir = ''
     paneCmds = ''
     paneAutoRun = true
+    paneTitle = ''
   }
 
   function submitAddPane() {
@@ -119,7 +125,7 @@
       .filter(Boolean)
       .map((command) => ({ command, autoRun: paneAutoRun }))
     guard(async () => {
-      await api.addPane(current.id, paneDir.trim(), addingSlot, commands)
+      await api.addPane(current.id, paneDir.trim(), addingSlot, commands, paneTitle.trim())
       addingSlot = null
       await reloadCurrent()
     })
@@ -174,6 +180,31 @@
     if (target == null) return
     const next = current.panes.find((p) => p.slot === target)
     if (next) activePaneId = next.id
+  }
+
+  function startEditTitle(pane) {
+    editingTitlePaneId = pane.id
+    titleDraft = pane.title || ''
+  }
+  function cancelEditTitle() {
+    editingTitlePaneId = null
+  }
+  function commitEditTitle(paneId) {
+    // 編集中の pane でなければ何もしない。input 除去時に発火する blur の再入
+    // （Enter→blur の二重 PUT、Escape キャンセル後の意図しない保存）を防ぐ。
+    if (editingTitlePaneId !== paneId) return
+    const next = titleDraft.trim()
+    editingTitlePaneId = null
+    guard(async () => {
+      await api.setPaneTitle(current.id, paneId, next)
+      await reloadCurrent()
+    })
+  }
+
+  // 動的に挿入される input は autofocus が効かないため action で明示フォーカスする。
+  function focusOnMount(el) {
+    el.focus()
+    el.select?.()
   }
 
   onMount(() => {
@@ -310,7 +341,27 @@
           <div class="cell" class:active-cell={cell.pane && cell.pane.id === activePaneId}>
             {#if cell.pane}
               <div class="cell-head">
-                <span class="dir" title={cell.pane.directory}>{cell.pane.directory}</span>
+                {#if editingTitlePaneId === cell.pane.id}
+                  <input
+                    class="title-edit"
+                    bind:value={titleDraft}
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter') commitEditTitle(cell.pane.id)
+                      else if (e.key === 'Escape') cancelEditTitle()
+                    }}
+                    onblur={() => commitEditTitle(cell.pane.id)}
+                    use:focusOnMount
+                  />
+                {:else}
+                  <span
+                    class="dir"
+                    title={cell.pane.directory}
+                    role="button"
+                    tabindex="0"
+                    onclick={() => startEditTitle(cell.pane)}
+                    onkeydown={(e) => { if (e.key === 'Enter') startEditTitle(cell.pane) }}
+                  >{cell.pane.title || cell.pane.directory}</span>
+                {/if}
                 <span class="cell-actions">
                   <button class="icon" title="最大化/戻す" onclick={() => toggleMaximize(cell.pane.id)}>⤢</button>
                   <button class="icon" title="削除" onclick={() => removePane(cell.pane.id)}>✕</button>
@@ -342,6 +393,9 @@
             {:else if addingSlot === cell.slot}
               <div class="add-form">
                 <h3>スロット {cell.slot} にペイン追加</h3>
+                <label>タイトル（任意）
+                  <input placeholder="例: API サーバー" bind:value={paneTitle} />
+                </label>
                 <label>作業ディレクトリ
                   <input placeholder="/path/to/project" bind:value={paneDir} />
                 </label>
