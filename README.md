@@ -73,9 +73,30 @@ Windows でも同様にバイナリ1つで動きます（PowerShell: `go build -
 mux を在プロセス配信し、端末 I/O は Go↔JS バインディングで動きます（ネット
 ワークポートを開きません）。
 
+**UI 開発**は既存の Web 開発フローをそのまま使います（デスクトップ版も同じフロントエンドを共用）:
+
 ```sh
-# 前提: wails CLI（go install github.com/wailsapp/wails/v2/cmd/wails@latest）
-cd apps/wails && wails dev      # 開発実行
+./scripts/dev.sh web       # Go バックエンド (:8080)
+./scripts/dev.sh frontend  # フロントエンド (:5173)
+# ブラウザで http://localhost:5173 を開く
+```
+
+> `wails dev` 単体では "not built" ページが表示されます。UI は `apps/web/webui/dist` に
+> コンパイル時埋め込みされており、`scripts/build-all.sh`（または後述の手動手順）でのみ
+> 生成されるためです。
+
+**デスクトップアプリのビルド・実行**（`build-all.sh` がフロントエンドのビルドと埋め込みも行います）:
+
+```sh
+./scripts/build-all.sh wails   # フロントエンドビルド→埋め込み→Wails ビルドを一括実行
+```
+
+または `wails build` を直接使う場合は、先に `apps/web/webui/dist` を用意してください:
+
+```sh
+cd frontend && npm run build && cd ..
+cp -R frontend/dist/. apps/web/webui/dist/
+cd apps/wails && wails build
 ```
 
 ビルド（**クロスコンパイル不可**。Windows 版は Windows 上、macOS 版は macOS 上で）:

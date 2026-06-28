@@ -128,3 +128,46 @@ func TestPaneSubscribe_EmitsDoneOnClose(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// TestPaneSubscribe_ReplacementDoesNotEmitDone verifies that replacing a live
+// subscription (calling PaneSubscribe twice on the same pane) does NOT cause
+// a spurious pane:<id>:done event, while a genuine session-end still emits
+// exactly one done.
+func TestPaneSubscribe_ReplacementDoesNotEmitDone(t *testing.T) {
+	ft := newFakeTerm()
+	app, read := newAppWithSession(t, "p3", ft)
+
+	if err := app.PaneSubscribe("p3"); err != nil {
+		t.Fatalf("subscribe 1: %v", err)
+	}
+	// Re-subscribe (replacement) on the SAME pane — this supersedes the first
+	// subscription and must NOT fire pane:p3:done.
+	if err := app.PaneSubscribe("p3"); err != nil {
+		t.Fatalf("subscribe 2: %v", err)
+	}
+
+	// Give the superseded pump goroutine time to (incorrectly) emit if it would.
+	time.Sleep(100 * time.Millisecond)
+	for _, e := range read() {
+		if e.event == "pane:p3:done" {
+			t.Fatalf("replacement emitted spurious done event; events=%v", read())
+		}
+	}
+
+	// A genuine session end must still produce exactly one done event.
+	_ = ft.Close()
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatalf("did not observe done event after Close; events=%v", read())
+		default:
+		}
+		for _, e := range read() {
+			if e.event == "pane:p3:done" {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

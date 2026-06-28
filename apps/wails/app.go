@@ -28,8 +28,14 @@ type App struct {
 }
 
 // NewApp builds an App from wired web dependencies.
+// emit defaults to a no-op so goroutines started before startup() never
+// dereference a nil function pointer.
 func NewApp(deps web.Deps) *App {
-	return &App{deps: deps, subs: make(map[string]*session.Subscription)}
+	return &App{
+		deps:  deps,
+		subs:  make(map[string]*session.Subscription),
+		emit:  func(string, ...interface{}) {},
+	}
 }
 
 // startup captures the Wails context and installs the real emit function.
@@ -76,12 +82,15 @@ func (a *App) pump(paneID string, sub *session.Subscription) {
 		case chunk := <-sub.C():
 			a.emit(paneEvent(paneID), base64.StdEncoding.EncodeToString(chunk))
 		case <-sub.Done():
-			a.emit(paneEvent(paneID) + ":done")
 			a.mu.Lock()
-			if a.subs[paneID] == sub {
+			current := a.subs[paneID] == sub
+			if current {
 				delete(a.subs, paneID)
 			}
 			a.mu.Unlock()
+			if current {
+				a.emit(paneEvent(paneID) + ":done")
+			}
 			return
 		}
 	}
