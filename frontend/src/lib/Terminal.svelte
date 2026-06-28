@@ -3,20 +3,16 @@
   import { Terminal } from '@xterm/xterm'
   import { FitAddon } from '@xterm/addon-fit'
   import '@xterm/xterm/css/xterm.css'
+  import { connectPane } from './termTransport.js'
 
-  // paneId が設定されると WebSocket を接続してライブ端末を表示する。
+  // paneId が設定されると接続してライブ端末を表示する。
   let { paneId } = $props()
 
-  let host // 端末を描画する DOM
+  let host
   let term
   let fit
-  let ws
+  let conn
   let status = $state('connecting')
-
-  function wsURL(id) {
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    return `${proto}://${location.host}/api/panes/${id}/io`
-  }
 
   function connect(id) {
     term = new Terminal({
@@ -30,33 +26,26 @@
     term.open(host)
     fit.fit()
 
-    ws = new WebSocket(wsURL(id))
-    ws.binaryType = 'arraybuffer'
+    conn = connectPane(id, {
+      onData: (data) => term.write(data),
+      onClose: () => {
+        status = 'closed'
+        term?.write('\r\n\x1b[33m[session closed]\x1b[0m\r\n')
+      },
+    })
 
-    ws.onopen = () => {
+    // ブラウザ(WS)では onopen を待って初回リサイズ。デスクトップは即送れる。
+    if (conn._ws) {
+      conn._ws.addEventListener('open', () => {
+        status = 'connected'
+        sendResize()
+      })
+    } else {
       status = 'connected'
       sendResize()
     }
-    ws.onmessage = (ev) => {
-      if (ev.data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(ev.data))
-      } else if (typeof ev.data === 'string') {
-        term.write(ev.data)
-      }
-    }
-    ws.onclose = () => {
-      status = 'closed'
-      term?.write('\r\n\x1b[33m[session closed]\x1b[0m\r\n')
-    }
-    ws.onerror = () => {
-      status = 'error'
-    }
 
-    term.onData((data) => {
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'input', data }))
-      }
-    })
+    term.onData((data) => conn.send(data))
 
     const ro = new ResizeObserver(() => {
       try {
@@ -71,9 +60,7 @@
   }
 
   function sendResize() {
-    if (ws?.readyState === WebSocket.OPEN && term) {
-      ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }))
-    }
+    if (conn && term) conn.resize(term.cols, term.rows)
   }
 
   onMount(() => {
@@ -81,7 +68,7 @@
     if (paneId) ro = connect(paneId)
     return () => {
       ro?.disconnect()
-      ws?.close()
+      conn?.close()
       term?.dispose()
     }
   })
