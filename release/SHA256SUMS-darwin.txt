@@ -1,3 +1,0 @@
-ce5bc1eed901606a01ced00b70950e3826bfc7d8fb3b0ba9fb54ec5c776d7ce0  multi-terminals-darwin-amd64
-c216eb5eb09230175466bafc84a171869d21893d94668b97d94248ef99a4ed2f  multi-terminals-darwin-arm64
-ffe9e07ff835f2c105c3d664693a93b77d7101307b36966c8ab71610b0a73f6d  multi-terminals-darwin-universal
