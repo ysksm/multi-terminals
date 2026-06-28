@@ -57,7 +57,12 @@ jobs:
           else
             (cd apps/wails && wails build -platform windows/amd64 -clean)
           fi
-          cp -R apps/wails/build/bin/. release/ || true
+          if [ -d apps/wails/build/bin ]; then
+            cp -R apps/wails/build/bin/. release/
+          else
+            echo "::error::wails build produced no output in apps/wails/build/bin" >&2
+            exit 1
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
