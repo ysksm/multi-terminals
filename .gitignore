@@ -7,8 +7,9 @@ coverage.html
 # バイナリ出力
 /bin/
 /build/
-# リリース成果物のバイナリ（NOTES.md / SHA256SUMS.txt のみ追跡し、.exe は GitHub Release に添付）
+# リリース成果物のバイナリ（NOTES.md / SHA256SUMS.txt のみ追跡し、バイナリは GitHub Release に添付）
 /release/*.exe
+/release/multi-terminals-darwin-*
 
 # 埋め込み用フロントエンドビルド成果物（.gitkeep のみ追跡）
 /apps/web/webui/dist/*
