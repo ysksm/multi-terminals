@@ -5,6 +5,7 @@ package terminal
 
 import (
 	"context"
+	"os/exec"
 	"sync"
 
 	xpty "github.com/aymanbagabas/go-pty"
@@ -35,6 +36,16 @@ func (r *Runner) Start(ctx context.Context, req port.TerminalStartRequest) (port
 	shell := req.Shell
 	if shell == "" {
 		shell = r.defaultShell
+	}
+
+	// Resolve the shell against PATH up front. go-pty resolves a bare command
+	// name (e.g. "powershell.exe") relative to Cmd.Dir — the pane's working
+	// directory — rather than PATH, so starting a pane with a working directory
+	// set fails with `<Dir>\powershell.exe: file does not exist`. Passing an
+	// absolute path makes go-pty use it directly. If lookup fails we keep the
+	// original value and let the start below surface the error.
+	if resolved, err := exec.LookPath(shell); err == nil {
+		shell = resolved
 	}
 
 	// Honor caller cancellation for the start operation only.
