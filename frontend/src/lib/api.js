@@ -40,6 +40,7 @@ export const api = {
   setPaneCommands: (id, paneId, commands) =>
     req('PUT', `/api/workspaces/${id}/panes/${paneId}/commands`, { commands }),
   open: (id) => req('POST', `/api/workspaces/${id}/open`),
+  deleteWorkspace: (id) => req('DELETE', `/api/workspaces/${id}`),
 }
 
 // レイアウトプリセットの定義（バックエンドの値と一致させる）。

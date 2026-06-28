@@ -6,7 +6,9 @@
   import { connectPane } from './termTransport.js'
 
   // paneId が設定されると接続してライブ端末を表示する。
-  let { paneId } = $props()
+  let { paneId, active = false, onActivate } = $props()
+
+  $effect(() => { if (active && term) term.focus() })
 
   let host
   let term
@@ -24,6 +26,7 @@
     fit = new FitAddon()
     term.loadAddon(fit)
     term.open(host)
+    term.textarea?.addEventListener('focus', () => onActivate && onActivate())
     fit.fit()
 
     conn = connectPane(id, {

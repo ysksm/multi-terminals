@@ -26,24 +26,25 @@ func buildTestDeps(t *testing.T) web.Deps {
 	reg := session.NewRegistry()
 
 	return web.Deps{
-		Create:        command.NewCreateWorkspaceHandler(repo, idgen),
-		Rename:        command.NewRenameWorkspaceHandler(repo),
-		ChangeLayout:  command.NewChangeLayoutHandler(repo),
-		Maximize:      command.NewMaximizePaneHandler(repo),
-		Restore:       command.NewRestoreLayoutHandler(repo),
-		SetLastActive: command.NewSetLastActivePaneHandler(repo),
-		Get:           query.NewGetWorkspaceHandler(repo),
-		List:          query.NewListWorkspacesHandler(repo),
-		GetLastOpened: query.NewGetLastOpenedWorkspaceHandler(state, repo),
-		AddPane:       command.NewAddPaneHandler(repo, idgen),
-		RemovePane:    command.NewRemovePaneHandler(repo),
-		SetDir:        command.NewSetPaneDirectoryHandler(repo),
-		SetCmds:       command.NewSetPaneStartupCommandsHandler(repo),
-		Open:          command.NewOpenWorkspaceHandler(repo, runner, reg, state, "/bin/sh"),
-		Write:         command.NewWriteToPaneHandler(reg),
-		Resize:        command.NewResizePaneHandler(reg),
-		ClosePane:     command.NewClosePaneHandler(reg),
-		Registry:      reg,
+		Create:          command.NewCreateWorkspaceHandler(repo, idgen),
+		Rename:          command.NewRenameWorkspaceHandler(repo),
+		ChangeLayout:    command.NewChangeLayoutHandler(repo),
+		Maximize:        command.NewMaximizePaneHandler(repo),
+		Restore:         command.NewRestoreLayoutHandler(repo),
+		SetLastActive:   command.NewSetLastActivePaneHandler(repo),
+		Get:             query.NewGetWorkspaceHandler(repo),
+		List:            query.NewListWorkspacesHandler(repo),
+		GetLastOpened:   query.NewGetLastOpenedWorkspaceHandler(state, repo),
+		AddPane:         command.NewAddPaneHandler(repo, idgen),
+		RemovePane:      command.NewRemovePaneHandler(repo),
+		SetDir:          command.NewSetPaneDirectoryHandler(repo),
+		SetCmds:         command.NewSetPaneStartupCommandsHandler(repo),
+		Open:            command.NewOpenWorkspaceHandler(repo, runner, reg, state, "/bin/sh"),
+		Write:           command.NewWriteToPaneHandler(reg),
+		Resize:          command.NewResizePaneHandler(reg),
+		ClosePane:       command.NewClosePaneHandler(reg),
+		DeleteWorkspace: command.NewDeleteWorkspaceHandler(repo, reg),
+		Registry:        reg,
 	}
 }
 
@@ -765,5 +766,75 @@ func TestListSessionsAfterOpen(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected paneId %q in paneIds, got %v", paneID, paneIds)
+	}
+}
+
+// ---- DELETE /api/workspaces/{id} tests ----
+
+// TestDeleteWorkspace verifies that DELETE /api/workspaces/{id} returns 204 and
+// that the workspace is gone from GET /api/workspaces.
+func TestDeleteWorkspace(t *testing.T) {
+	deps := buildTestDeps(t)
+	mux := web.NewMux(deps)
+
+	// Create a workspace
+	w := doRequest(mux, http.MethodPost, "/api/workspaces", `{"name":"ToDelete","layout":"single"}`)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create workspace: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var cr map[string]string
+	json.NewDecoder(w.Body).Decode(&cr)
+	id := cr["id"]
+
+	// Delete the workspace
+	delW := doRequest(mux, http.MethodDelete, "/api/workspaces/"+id, "")
+	if delW.Code != http.StatusNoContent {
+		t.Fatalf("delete workspace: expected 204, got %d: %s", delW.Code, delW.Body.String())
+	}
+
+	// Confirm it is gone from GET /api/workspaces
+	listW := doRequest(mux, http.MethodGet, "/api/workspaces", "")
+	if listW.Code != http.StatusOK {
+		t.Fatalf("list workspaces: expected 200, got %d", listW.Code)
+	}
+	var dtos []map[string]interface{}
+	json.NewDecoder(listW.Body).Decode(&dtos)
+	for _, dto := range dtos {
+		if dto["id"] == id {
+			t.Fatalf("workspace %q still present in list after delete", id)
+		}
+	}
+}
+
+// TestDeleteWorkspaceNotFound verifies that deleting a nonexistent workspace returns 404.
+func TestDeleteWorkspaceNotFound(t *testing.T) {
+	mux := web.NewMux(buildTestDeps(t))
+	w := doRequest(mux, http.MethodDelete, "/api/workspaces/nonexistent", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for nonexistent workspace, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestDeleteWorkspaceGetAfterDelete verifies that GET on the deleted workspace returns 404.
+func TestDeleteWorkspaceGetAfterDelete(t *testing.T) {
+	deps := buildTestDeps(t)
+	mux := web.NewMux(deps)
+
+	// Create
+	w := doRequest(mux, http.MethodPost, "/api/workspaces", `{"name":"Gone","layout":"single"}`)
+	var cr map[string]string
+	json.NewDecoder(w.Body).Decode(&cr)
+	id := cr["id"]
+
+	// Delete
+	delW := doRequest(mux, http.MethodDelete, "/api/workspaces/"+id, "")
+	if delW.Code != http.StatusNoContent {
+		t.Fatalf("delete: expected 204, got %d: %s", delW.Code, delW.Body.String())
+	}
+
+	// GET should now return 404
+	getW := doRequest(mux, http.MethodGet, "/api/workspaces/"+id, "")
+	if getW.Code != http.StatusNotFound {
+		t.Fatalf("get after delete: expected 404, got %d: %s", getW.Code, getW.Body.String())
 	}
 }
