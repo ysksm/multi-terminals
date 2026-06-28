@@ -15,6 +15,7 @@ type paneRecord struct {
 	ID        string                 `json:"id"`
 	Directory string                 `json:"directory"`
 	Slot      int                    `json:"slot"`
+	Title     string                 `json:"title,omitempty"`
 	Commands  []startupCommandRecord `json:"commands"`
 }
 

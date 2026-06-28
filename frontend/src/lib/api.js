@@ -32,14 +32,17 @@ export const api = {
   setActivePane: (id, paneId) => req('POST', `/api/workspaces/${id}/active-pane`, { paneId }),
   lastOpened: () => req('GET', '/api/last-opened'),
   listSessions: () => req('GET', '/api/sessions'),
-  addPane: (id, directory, slot, commands) =>
-    req('POST', `/api/workspaces/${id}/panes`, { directory, slot, commands }),
+  addPane: (id, directory, slot, commands, title) =>
+    req('POST', `/api/workspaces/${id}/panes`, { directory, slot, commands, title }),
   removePane: (id, paneId) => req('DELETE', `/api/workspaces/${id}/panes/${paneId}`),
   setPaneDirectory: (id, paneId, directory) =>
     req('PUT', `/api/workspaces/${id}/panes/${paneId}/directory`, { directory }),
+  setPaneTitle: (id, paneId, title) =>
+    req('PUT', `/api/workspaces/${id}/panes/${paneId}/title`, { title }),
   setPaneCommands: (id, paneId, commands) =>
     req('PUT', `/api/workspaces/${id}/panes/${paneId}/commands`, { commands }),
   open: (id) => req('POST', `/api/workspaces/${id}/open`),
+  deleteWorkspace: (id) => req('DELETE', `/api/workspaces/${id}`),
 }
 
 // レイアウトプリセットの定義（バックエンドの値と一致させる）。

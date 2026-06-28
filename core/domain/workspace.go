@@ -7,10 +7,10 @@ import (
 
 // Workspace は永続化対象の集約ルート。レイアウトと pane 群の不変条件を強制する。
 type Workspace struct {
-	id        WorkspaceId
-	name      WorkspaceName
-	layout    LayoutPreset
-	panes     []*Pane
+	id         WorkspaceId
+	name       WorkspaceName
+	layout     LayoutPreset
+	panes      []*Pane
 	lastActive *PaneId
 	maximized  *PaneId
 }
@@ -25,8 +25,8 @@ func NewWorkspace(id WorkspaceId, name WorkspaceName, layout LayoutPreset) (*Wor
 	return &Workspace{id: id, name: name, layout: layout}, nil
 }
 
-func (w *Workspace) ID() WorkspaceId     { return w.id }
-func (w *Workspace) Name() WorkspaceName { return w.name }
+func (w *Workspace) ID() WorkspaceId      { return w.id }
+func (w *Workspace) Name() WorkspaceName  { return w.name }
 func (w *Workspace) Layout() LayoutPreset { return w.layout }
 
 // Panes は内部スライスの防御的コピーを返す（要素 *Pane 自体は共有）。
@@ -117,6 +117,16 @@ func (w *Workspace) SetPaneDirectory(id PaneId, dir DirectoryPath) error {
 		return fmt.Errorf("pane %s not found", id)
 	}
 	p.setDirectory(dir)
+	return nil
+}
+
+// SetPaneTitle は指定 pane の表示名を変更する。
+func (w *Workspace) SetPaneTitle(id PaneId, title PaneTitle) error {
+	p := w.findPane(id)
+	if p == nil {
+		return fmt.Errorf("pane %s not found", id)
+	}
+	p.setTitle(title)
 	return nil
 }
 

@@ -52,7 +52,7 @@ func makePane(t *testing.T, id string, dir string, slot int, cmds []domain.Start
 	if err != nil {
 		t.Fatalf("NewSlotIndex: %v", err)
 	}
-	p, err := domain.NewPane(pid, d, si, cmds)
+	p, err := domain.NewPane(pid, d, si, domain.PaneTitle{}, cmds)
 	if err != nil {
 		t.Fatalf("NewPane: %v", err)
 	}

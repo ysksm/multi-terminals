@@ -1,6 +1,9 @@
 package domain
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNewWorkspaceId(t *testing.T) {
 	id, err := NewWorkspaceId("ws-1")
@@ -104,5 +107,28 @@ func TestNewStartupCommand(t *testing.T) {
 	}
 	if _, err := NewStartupCommand("  ", false); err == nil {
 		t.Error("blank command should error")
+	}
+}
+
+func TestNewPaneTitle(t *testing.T) {
+	// 空は許容（未設定）
+	if pt, err := NewPaneTitle(""); err != nil || !pt.IsZero() {
+		t.Fatalf("empty title: got (%q, %v), want empty/no-error", pt.String(), err)
+	}
+	// 前後空白はトリム
+	if pt, err := NewPaneTitle("  build  "); err != nil || pt.String() != "build" {
+		t.Fatalf("trim: got (%q, %v), want \"build\"", pt.String(), err)
+	}
+	// 最大長ちょうどは可、超過は不可
+	ok := strings.Repeat("a", MaxPaneTitleLen)
+	if _, err := NewPaneTitle(ok); err != nil {
+		t.Fatalf("max length boundary: unexpected error %v", err)
+	}
+	if _, err := NewPaneTitle(strings.Repeat("a", MaxPaneTitleLen+1)); err == nil {
+		t.Fatal("over max length: expected error, got nil")
+	}
+	// 制御文字（改行など）は不可
+	if _, err := NewPaneTitle("a\nb"); err == nil {
+		t.Fatal("control char: expected error, got nil")
 	}
 }

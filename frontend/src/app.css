@@ -107,15 +107,21 @@ textarea {
   flex-direction: column;
   gap: 4px;
 }
-.list li button {
-  width: 100%;
+.list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.list li .ws-select {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
   text-align: left;
 }
-.list li button.active {
+.list li .ws-select.active {
   border-color: var(--accent);
   background: var(--accent-bg);
 }
@@ -263,4 +269,42 @@ textarea {
 }
 .add-form label.row input[type='checkbox'] {
   width: auto;
+}
+
+/* ---- Sidebar collapsed ---- */
+.app.sidebar-collapsed .sidebar {
+  display: none;
+}
+
+/* ---- Sidebar toggle button ---- */
+.sidebar-toggle {
+  font-size: 16px;
+  padding: 4px 8px;
+  flex-shrink: 0;
+}
+
+/* ---- Empty bar (no workspace selected) ---- */
+.empty-bar {
+  display: flex;
+  align-items: center;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+/* ---- Active pane highlight ---- */
+.cell.active-cell {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* ---- Danger button (delete confirm) ---- */
+button.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+button.danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: var(--danger);
 }

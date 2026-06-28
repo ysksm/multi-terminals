@@ -25,6 +25,7 @@ func toRecord(w *domain.Workspace) workspaceRecord {
 			ID:        p.ID().String(),
 			Directory: p.Directory().String(),
 			Slot:      p.Slot().Int(),
+			Title:     p.Title().String(),
 			Commands:  cmdRecs,
 		}
 	}
@@ -107,7 +108,12 @@ func toDomain(rec workspaceRecord) (*domain.Workspace, error) {
 			cmds = append(cmds, cmd)
 		}
 
-		pane, err := domain.NewPane(paneID, dir, slot, cmds)
+		title, err := domain.NewPaneTitle(pr.Title)
+		if err != nil {
+			return nil, fmt.Errorf("invalid title %q for pane %q: %w", pr.Title, pr.ID, err)
+		}
+
+		pane, err := domain.NewPane(paneID, dir, slot, title, cmds)
 		if err != nil {
 			return nil, fmt.Errorf("cannot build pane %q: %w", pr.ID, err)
 		}

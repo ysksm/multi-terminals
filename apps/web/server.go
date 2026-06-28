@@ -16,24 +16,26 @@ import (
 
 // Deps holds all CQRS handler dependencies for the HTTP server.
 type Deps struct {
-	Create        *command.CreateWorkspaceHandler
-	Rename        *command.RenameWorkspaceHandler
-	ChangeLayout  *command.ChangeLayoutHandler
-	Maximize      *command.MaximizePaneHandler
-	Restore       *command.RestoreLayoutHandler
-	SetLastActive *command.SetLastActivePaneHandler
-	Get           *query.GetWorkspaceHandler
-	List          *query.ListWorkspacesHandler
-	GetLastOpened *query.GetLastOpenedWorkspaceHandler
-	AddPane       *command.AddPaneHandler
-	RemovePane    *command.RemovePaneHandler
-	SetDir        *command.SetPaneDirectoryHandler
-	SetCmds       *command.SetPaneStartupCommandsHandler
-	Open          *command.OpenWorkspaceHandler
-	Write         *command.WriteToPaneHandler
-	Resize        *command.ResizePaneHandler
-	ClosePane     *command.ClosePaneHandler
-	Registry      *session.Registry
+	Create          *command.CreateWorkspaceHandler
+	Rename          *command.RenameWorkspaceHandler
+	ChangeLayout    *command.ChangeLayoutHandler
+	Maximize        *command.MaximizePaneHandler
+	Restore         *command.RestoreLayoutHandler
+	SetLastActive   *command.SetLastActivePaneHandler
+	Get             *query.GetWorkspaceHandler
+	List            *query.ListWorkspacesHandler
+	GetLastOpened   *query.GetLastOpenedWorkspaceHandler
+	AddPane         *command.AddPaneHandler
+	RemovePane      *command.RemovePaneHandler
+	SetDir          *command.SetPaneDirectoryHandler
+	SetTitle        *command.SetPaneTitleHandler
+	SetCmds         *command.SetPaneStartupCommandsHandler
+	Open            *command.OpenWorkspaceHandler
+	Write           *command.WriteToPaneHandler
+	Resize          *command.ResizePaneHandler
+	ClosePane       *command.ClosePaneHandler
+	DeleteWorkspace *command.DeleteWorkspaceHandler
+	Registry        *session.Registry
 }
 
 // NewMux registers all routes and returns the HTTP mux.
@@ -48,6 +50,7 @@ func NewMux(d Deps) *http.ServeMux {
 	// Workspace item
 	mux.HandleFunc("GET /api/workspaces/{id}", d.handleGetWorkspace)
 	mux.HandleFunc("PATCH /api/workspaces/{id}", d.handlePatchWorkspace)
+	mux.HandleFunc("DELETE /api/workspaces/{id}", d.handleDeleteWorkspace)
 
 	// Workspace actions
 	mux.HandleFunc("POST /api/workspaces/{id}/maximize", d.handleMaximize)
@@ -59,6 +62,7 @@ func NewMux(d Deps) *http.ServeMux {
 	mux.HandleFunc("POST /api/workspaces/{id}/panes", d.handleAddPane)
 	mux.HandleFunc("DELETE /api/workspaces/{id}/panes/{paneId}", d.handleRemovePane)
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/directory", d.handleSetPaneDirectory)
+	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/title", d.handleSetPaneTitle)
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/commands", d.handleSetPaneCommands)
 
 	// Global queries
@@ -251,6 +255,7 @@ func (d Deps) handleAddPane(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Directory string `json:"directory"`
 		Slot      int    `json:"slot"`
+		Title     string `json:"title"`
 		Commands  []struct {
 			Command string `json:"command"`
 			AutoRun bool   `json:"autoRun"`
@@ -268,6 +273,7 @@ func (d Deps) handleAddPane(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: id,
 		Directory:   body.Directory,
 		Slot:        body.Slot,
+		Title:       body.Title,
 		Commands:    cmds,
 	})
 	if err != nil {
@@ -304,6 +310,27 @@ func (d Deps) handleSetPaneDirectory(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: id,
 		PaneID:      paneID,
 		Directory:   body.Directory,
+	}); err != nil {
+		mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (d Deps) handleSetPaneTitle(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	paneID := r.PathValue("paneId")
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := d.SetTitle.Handle(r.Context(), command.SetPaneTitleCommand{
+		WorkspaceID: id,
+		PaneID:      paneID,
+		Title:       body.Title,
 	}); err != nil {
 		mapErr(w, err)
 		return
@@ -366,4 +393,13 @@ func (d Deps) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 		ids = []string{}
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"paneIds": ids})
+}
+
+func (d Deps) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := d.DeleteWorkspace.Handle(r.Context(), command.DeleteWorkspaceCommand{WorkspaceID: id}); err != nil {
+		mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -7,10 +7,21 @@ coverage.html
 # バイナリ出力
 /bin/
 /build/
+# リリース成果物（NOTES.md のみ追跡。バイナリとチェックサムは生成物で GitHub Release に添付）
+/release/*.exe
+/release/multi-terminals-darwin-*
+/release/SHA256SUMS*.txt
+/release/*.app
+/release/multi-terminals
 
 # 埋め込み用フロントエンドビルド成果物（.gitkeep のみ追跡）
 /apps/web/webui/dist/*
 !/apps/web/webui/dist/.gitkeep
+
+# Wails 生成物（wails dev/build が生成）
+/apps/wails/build/
+/frontend/wailsjs/
+/frontend/package.json.md5
 
 # OS / エディタ
 .DS_Store
