@@ -27,11 +27,11 @@ export function b64ToBytes(b64) {
 // { send, resize, close } を返す。
 //   onData(Uint8Array|string): 出力受信
 //   onClose(): セッション終了/切断
-export function connectPane(paneId, { onData, onClose }) {
+export function connectPane(paneId, { onData, onClose, onError }) {
   if (isDesktop()) {
-    return connectDesktop(paneId, { onData, onClose })
+    return connectDesktop(paneId, { onData, onClose, onError })
   }
-  return connectBrowser(paneId, { onData, onClose })
+  return connectBrowser(paneId, { onData, onClose, onError })
 }
 
 function connectDesktop(paneId, { onData, onClose }) {
@@ -42,8 +42,12 @@ function connectDesktop(paneId, { onData, onClose }) {
   window.runtime.EventsOn(dataEvent, (b64) => onData(b64ToBytes(b64)))
   window.runtime.EventsOn(doneEvent, () => onClose && onClose())
 
-  // 購読開始。失敗時は onClose で通知。
-  Promise.resolve(App.PaneSubscribe(paneId)).catch(() => onClose && onClose())
+  // 購読開始。失敗時はリスナを解除してから onClose で通知。
+  Promise.resolve(App.PaneSubscribe(paneId)).catch(() => {
+    window.runtime.EventsOff(dataEvent)
+    window.runtime.EventsOff(doneEvent)
+    onClose && onClose()
+  })
 
   return {
     send(data) {
@@ -60,7 +64,7 @@ function connectDesktop(paneId, { onData, onClose }) {
   }
 }
 
-function connectBrowser(paneId, { onData, onClose }) {
+function connectBrowser(paneId, { onData, onClose, onError }) {
   const ws = new WebSocket(paneWsURL(window.location, paneId))
   ws.binaryType = 'arraybuffer'
 
@@ -69,6 +73,7 @@ function connectBrowser(paneId, { onData, onClose }) {
     else if (typeof ev.data === 'string') onData(ev.data)
   }
   ws.onclose = () => onClose && onClose()
+  ws.onerror = () => onError && onError()
 
   return {
     send(data) {

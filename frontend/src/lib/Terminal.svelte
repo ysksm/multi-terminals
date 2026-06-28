@@ -32,6 +32,9 @@
         status = 'closed'
         term?.write('\r\n\x1b[33m[session closed]\x1b[0m\r\n')
       },
+      onError: () => {
+        status = 'error'
+      },
     })
 
     // ブラウザ(WS)では onopen を待って初回リサイズ。デスクトップは即送れる。
