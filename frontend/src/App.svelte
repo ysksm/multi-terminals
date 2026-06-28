@@ -25,6 +25,12 @@
   let editingTitlePaneId = $state(null)
   let titleDraft = $state('')
 
+  // ペイン内容（作業ディレクトリ・起動コマンド）編集
+  let editingPaneId = $state(null)
+  let editDir = $state('')
+  let editCmds = $state('')
+  let editAutoRun = $state(true)
+
   // サイドバー折りたたみ
   let sidebarCollapsed = $state(localStorage.getItem('mt.sidebarCollapsed') === '1')
 
@@ -201,6 +207,35 @@
     })
   }
 
+  // ペイン内容の編集（作業ディレクトリ・起動コマンド）。タイトルはセルヘッダの
+  // クリックで従来どおりインライン編集できる。
+  function startEditPane(pane) {
+    editingPaneId = pane.id
+    editDir = pane.directory || ''
+    editCmds = (pane.commands || []).map((c) => c.command).join('\n')
+    editAutoRun = pane.commands?.length ? pane.commands.every((c) => c.autoRun) : true
+  }
+  function cancelEditPane() {
+    editingPaneId = null
+  }
+  function submitEditPane(paneId) {
+    if (!editDir.trim()) {
+      error = '作業ディレクトリを入力してください'
+      return
+    }
+    const commands = editCmds
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((command) => ({ command, autoRun: editAutoRun }))
+    guard(async () => {
+      await api.setPaneDirectory(current.id, paneId, editDir.trim())
+      await api.setPaneCommands(current.id, paneId, commands)
+      editingPaneId = null
+      await reloadCurrent()
+    })
+  }
+
   // 動的に挿入される input は autofocus が効かないため action で明示フォーカスする。
   function focusOnMount(el) {
     el.focus()
@@ -363,12 +398,34 @@
                   >{cell.pane.title || cell.pane.directory}</span>
                 {/if}
                 <span class="cell-actions">
+                  <button class="icon" title="編集" onclick={() => startEditPane(cell.pane)}>✎</button>
                   <button class="icon" title="最大化/戻す" onclick={() => toggleMaximize(cell.pane.id)}>⤢</button>
                   <button class="icon" title="削除" onclick={() => removePane(cell.pane.id)}>✕</button>
                 </span>
               </div>
               <div class="cell-body">
-                {#if openedPaneIds.has(cell.pane.id)}
+                {#if editingPaneId === cell.pane.id}
+                  <div class="add-form">
+                    <h3>ペインを編集</h3>
+                    <label>作業ディレクトリ
+                      <input placeholder="/path/to/project" bind:value={editDir} use:focusOnMount />
+                    </label>
+                    <label>起動コマンド（1行1コマンド）
+                      <textarea rows="3" placeholder="npm run dev" bind:value={editCmds}></textarea>
+                    </label>
+                    <label class="row">
+                      <input type="checkbox" bind:checked={editAutoRun} />
+                      開いたとき自動実行する
+                    </label>
+                    <div class="row">
+                      <button class="primary" onclick={() => submitEditPane(cell.pane.id)} disabled={busy}>保存</button>
+                      <button onclick={cancelEditPane}>キャンセル</button>
+                    </div>
+                    {#if openedPaneIds.has(cell.pane.id)}
+                      <small class="muted">変更は次回「開く」で反映されます</small>
+                    {/if}
+                  </div>
+                {:else if openedPaneIds.has(cell.pane.id)}
                   {#key cell.pane.id}
                     <Terminal
                       paneId={cell.pane.id}
