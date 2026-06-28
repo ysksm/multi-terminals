@@ -33,9 +33,44 @@ if ! command -v go >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v wails >/dev/null 2>&1; then
-  echo "error: wails コマンドが見つかりません。" >&2
-  echo "  go install github.com/wailsapp/wails/v2/cmd/wails@latest" >&2
+# wails CLI を解決する。PATH を優先し、無ければ Go のインストール先
+# （$GOBIN / $(go env GOPATH)/bin）も探索する。go install しても
+# GOPATH/bin が PATH に無いと command -v では見つからないため。
+WAILS=""
+resolve_wails() {
+  if command -v wails >/dev/null 2>&1; then
+    WAILS="$(command -v wails)"
+    return 0
+  fi
+  local gobin
+  gobin="$(go env GOBIN 2>/dev/null)"
+  if [ -n "$gobin" ] && [ -x "$gobin/wails" ]; then
+    WAILS="$gobin/wails"
+    return 0
+  fi
+  local gopath
+  gopath="$(go env GOPATH 2>/dev/null)"
+  if [ -n "$gopath" ] && [ -x "$gopath/bin/wails" ]; then
+    WAILS="$gopath/bin/wails"
+    return 0
+  fi
+  return 1
+}
+
+if ! resolve_wails; then
+  gopathbin="$(go env GOPATH 2>/dev/null)/bin"
+  {
+    echo "error: wails コマンドが見つかりません。"
+    echo ""
+    echo "  1) インストール:"
+    echo "       go install github.com/wailsapp/wails/v2/cmd/wails@latest"
+    echo ""
+    echo "  2) インストール先 ($gopathbin) を PATH に追加してください:"
+    echo "       export PATH=\"\$PATH:$gopathbin\"        # bash/zsh"
+    echo ""
+    echo "  （このスクリプトは PATH に無くても $gopathbin / \$GOBIN を自動探索します。"
+    echo "   上記に wails が無い場合は 1) のインストールを実行してください。）"
+  } >&2
   exit 1
 fi
 
@@ -80,7 +115,7 @@ assert_buildable() {
   case "$platform" in
     darwin/*)
       if [ "$host" != "Darwin" ]; then
-        echo "error: $platform は macOS 上でのみビルドできます（現在: $host）。" >&2
+        echo "error: $platform は macOS 上でのみビルドできます（現在: ${host}）。" >&2
         echo "  Wails はクロスコンパイル不可です。macOS 環境か CI を使ってください。" >&2
         exit 1
       fi
@@ -89,7 +124,7 @@ assert_buildable() {
       case "$host" in
         MINGW*|MSYS*|CYGWIN*) : ;;
         *)
-          echo "error: $platform は Windows 上でのみビルドできます（現在: $host）。" >&2
+          echo "error: $platform は Windows 上でのみビルドできます（現在: ${host}）。" >&2
           echo "  Wails はクロスコンパイル不可です。Windows 環境か CI を使ってください。" >&2
           exit 1
           ;;
@@ -100,8 +135,8 @@ assert_buildable() {
 
 cmd_dev() {
   embed_frontend
-  echo ">> (cd apps/wails && wails dev)"
-  (cd apps/wails && wails dev)
+  echo ">> (cd apps/wails && $WAILS dev)"
+  (cd apps/wails && "$WAILS" dev)
 }
 
 cmd_build() {
@@ -117,8 +152,8 @@ cmd_build() {
 
   embed_frontend
 
-  echo ">> (cd apps/wails && wails build -platform $platform -clean)"
-  (cd apps/wails && wails build -platform "$platform" -clean)
+  echo ">> (cd apps/wails && $WAILS build -platform $platform -clean)"
+  (cd apps/wails && "$WAILS" build -platform "$platform" -clean)
 
   mkdir -p "$OUTDIR"
   if [ -d "apps/wails/build/bin" ]; then
@@ -130,7 +165,7 @@ cmd_build() {
   fi
 
   echo ""
-  echo "✅ Wails デスクトップ版をビルドしました（platform=$platform）"
+  echo "✅ Wails デスクトップ版をビルドしました（platform=${platform}）"
   echo "   成果物: $ROOT/apps/wails/build/bin/  （$OUTDIR/ にもコピー済み）"
 }
 
