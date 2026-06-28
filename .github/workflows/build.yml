@@ -1,0 +1,67 @@
+name: build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  desktop:
+    name: build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Build frontend and embed
+        shell: bash
+        run: |
+          (cd frontend && npm install && npm run build)
+          rm -rf apps/web/webui/dist
+          mkdir -p apps/web/webui/dist
+          touch apps/web/webui/dist/.gitkeep
+          cp -R frontend/dist/. apps/web/webui/dist/
+
+      - name: Build web binaries (this OS family)
+        shell: bash
+        run: |
+          mkdir -p release
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o release/multi-terminals-darwin-arm64 ./apps/web/cmd
+            CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o release/multi-terminals-darwin-amd64 ./apps/web/cmd
+            lipo -create release/multi-terminals-darwin-arm64 release/multi-terminals-darwin-amd64 -output release/multi-terminals-darwin-universal
+          else
+            CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o release/multi-terminals-windows-amd64.exe ./apps/web/cmd
+          fi
+
+      - name: Build Wails desktop app
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            (cd apps/wails && wails build -platform darwin/universal -clean)
+          else
+            (cd apps/wails && wails build -platform windows/amd64 -clean)
+          fi
+          cp -R apps/wails/build/bin/. release/ || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-terminals-${{ matrix.os }}
+          path: release/*
+          if-no-files-found: error
