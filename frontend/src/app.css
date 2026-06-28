@@ -272,6 +272,9 @@ textarea {
 }
 
 /* ---- Sidebar collapsed ---- */
+.app.sidebar-collapsed {
+  grid-template-columns: 1fr;
+}
 .app.sidebar-collapsed .sidebar {
   display: none;
 }

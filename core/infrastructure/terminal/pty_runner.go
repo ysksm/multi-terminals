@@ -5,7 +5,9 @@ package terminal
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"strings"
 	"sync"
 
 	xpty "github.com/aymanbagabas/go-pty"
@@ -19,6 +21,29 @@ var _ port.TerminalRunner = (*Runner)(nil)
 // Runner is a port.TerminalRunner that starts PTY-backed shell sessions.
 type Runner struct {
 	defaultShell string
+}
+
+// ensureTerminalEnv returns env with TERM and COLORTERM populated, defaulting
+// to xterm-256color / truecolor when the variable is absent. Values already
+// present in env are preserved.
+func ensureTerminalEnv(env []string) []string {
+	hasTerm := false
+	hasColor := false
+	for _, kv := range env {
+		switch {
+		case strings.HasPrefix(kv, "TERM="):
+			hasTerm = true
+		case strings.HasPrefix(kv, "COLORTERM="):
+			hasColor = true
+		}
+	}
+	if !hasTerm {
+		env = append(env, "TERM=xterm-256color")
+	}
+	if !hasColor {
+		env = append(env, "COLORTERM=truecolor")
+	}
+	return env
 }
 
 // NewRunner returns a new Runner. The default shell is OS-specific:
@@ -67,6 +92,13 @@ func (r *Runner) Start(ctx context.Context, req port.TerminalStartRequest) (port
 	if req.Dir != "" {
 		cmd.Dir = req.Dir
 	}
+	// Ensure the PTY child has a sane terminal environment. When the app is
+	// launched from a GUI shell (e.g. Finder on macOS), the parent process has
+	// no TERM/COLORTERM, so the child shell falls back to a dumb-terminal
+	// profile and tools (ls, grep, git, prompts) suppress color escapes.
+	// We default to xterm-256color + truecolor here but leave any caller-set
+	// values intact so the user's own TERM (if any) wins.
+	cmd.Env = ensureTerminalEnv(os.Environ())
 
 	if err := cmd.Start(); err != nil {
 		_ = ptmx.Close()
