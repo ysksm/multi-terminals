@@ -41,6 +41,10 @@ export const api = {
     req('PUT', `/api/workspaces/${id}/panes/${paneId}/title`, { title }),
   setPaneCommands: (id, paneId, commands) =>
     req('PUT', `/api/workspaces/${id}/panes/${paneId}/commands`, { commands }),
+  openPaneIn: (id, paneId, target) =>
+    req('POST', `/api/workspaces/${id}/panes/${paneId}/open-in`, { target }),
+  paneGit: (id, paneId) => req('GET', `/api/workspaces/${id}/panes/${paneId}/git`),
+  cloneRepo: (url, dest) => req('POST', '/api/repos/clone', { url, dest }),
   open: (id) => req('POST', `/api/workspaces/${id}/open`),
   deleteWorkspace: (id) => req('DELETE', `/api/workspaces/${id}`),
 }
