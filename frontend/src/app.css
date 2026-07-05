@@ -139,6 +139,90 @@ textarea {
   padding: 0 3px;
   flex-shrink: 0;
 }
+
+/* ---- Keyboard shortcuts help ---- */
+kbd {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  background: rgba(255, 255, 255, 0.04);
+}
+.shortcuts-open {
+  margin-top: 18px;
+  width: 100%;
+  text-align: left;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.shortcuts-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.shortcuts-modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px 20px;
+  width: min(440px, calc(100vw - 40px));
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+.shortcuts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.shortcuts-modal h2 {
+  font-size: 14px;
+  margin: 0;
+  color: #fff;
+}
+.shortcuts-modal h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 14px 0 6px;
+}
+.shortcuts-modal ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.shortcuts-modal li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.shortcuts-modal .keys {
+  flex-shrink: 0;
+  min-width: 150px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.shortcuts-modal .plus {
+  color: var(--muted);
+  font-size: 11px;
+}
+.shortcuts-modal .desc {
+  font-size: 12px;
+}
 .badge {
   font-size: 11px;
   color: var(--muted);
