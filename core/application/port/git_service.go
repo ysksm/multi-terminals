@@ -17,5 +17,6 @@ type GitService interface {
 	RemoteURL(dir string) (string, error)
 
 	// Clone は url を dest に clone し、clone 先の絶対パスを返す。
+	// dest が既に git リポジトリの場合は clone せず、そのパスを返す。
 	Clone(url, dest string) (string, error)
 }

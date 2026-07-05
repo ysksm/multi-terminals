@@ -82,10 +82,15 @@ func expandTilde(path string) (string, error) {
 }
 
 // Clone は url を dest（~/ 展開あり）に clone して clone 先パスを返す。
+// dest が既に git リポジトリの場合は clone せず、そのパスをそのまま返す
+// （clone 済みフォルダの再利用。リモート URL の一致検証は行わない）。
 func (s *Service) Clone(url, dest string) (string, error) {
 	expanded, err := expandTilde(dest)
 	if err != nil {
 		return "", err
+	}
+	if _, err := git(expanded, "rev-parse", "--is-inside-work-tree"); err == nil {
+		return expanded, nil
 	}
 	cmd := exec.Command("git", "clone", "--", url, expanded)
 	var errBuf bytes.Buffer
