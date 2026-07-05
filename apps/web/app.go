@@ -9,7 +9,9 @@ import (
 	"github.com/ysksm/multi-terminals/core/application/port"
 	"github.com/ysksm/multi-terminals/core/application/query"
 	"github.com/ysksm/multi-terminals/core/application/session"
+	"github.com/ysksm/multi-terminals/core/infrastructure/gitcli"
 	"github.com/ysksm/multi-terminals/core/infrastructure/jsonstore"
+	"github.com/ysksm/multi-terminals/core/infrastructure/sysopen"
 	"github.com/ysksm/multi-terminals/core/infrastructure/terminal"
 )
 
@@ -42,6 +44,7 @@ func BuildDeps(baseDir string) (Deps, error) {
 	runner := terminal.NewRunner()
 	reg := session.NewRegistry()
 	idgen := &uuidIDGen{}
+	git := gitcli.New()
 
 	return Deps{
 		Create:          command.NewCreateWorkspaceHandler(repo, idgen),
@@ -58,6 +61,9 @@ func BuildDeps(baseDir string) (Deps, error) {
 		SetDir:          command.NewSetPaneDirectoryHandler(repo),
 		SetTitle:        command.NewSetPaneTitleHandler(repo),
 		SetCmds:         command.NewSetPaneStartupCommandsHandler(repo),
+		OpenIn:          command.NewOpenPaneInHandler(repo, sysopen.New(), git),
+		CloneRepo:       command.NewCloneRepositoryHandler(git),
+		GetPaneGit:      query.NewGetPaneGitInfoHandler(repo, git),
 		Open:            command.NewOpenWorkspaceHandler(repo, runner, reg, state, ""),
 		Write:           command.NewWriteToPaneHandler(reg),
 		Resize:          command.NewResizePaneHandler(reg),

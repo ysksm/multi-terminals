@@ -20,6 +20,11 @@
   let paneCmds = $state('')
   let paneAutoRun = $state(true)
   let paneTitle = $state('')
+  let paneRepoUrl = $state('')
+  let lastAutoDir = ''
+
+  // ペイン毎の git 情報（paneId -> {isRepo, branch, dirty}）
+  let paneGit = $state({})
 
   // ペインタイトルインライン編集
   let editingTitlePaneId = $state(null)
@@ -69,6 +74,7 @@
       activePaneId = current?.lastActivePaneId ?? current?.panes?.[0]?.id ?? null
       // サーバー側で生存しているセッションへ自動再接続（resume）
       await syncLiveSessions()
+      await refreshGitInfo()
     })
   }
 
@@ -76,7 +82,27 @@
     if (current) {
       current = await api.getWorkspace(current.id)
       activePaneId = current?.lastActivePaneId ?? current?.panes?.[0]?.id ?? null
+      await refreshGitInfo()
     }
+  }
+
+  // 各ペインの git 情報（ブランチ・変更有無）を取得する。失敗したペインは
+  // バッジ非表示にするだけで、全体のエラーにはしない。
+  async function refreshGitInfo() {
+    if (!current) {
+      paneGit = {}
+      return
+    }
+    const entries = await Promise.all(
+      current.panes.map(async (p) => {
+        try {
+          return [p.id, await api.paneGit(current.id, p.id)]
+        } catch {
+          return [p.id, null]
+        }
+      })
+    )
+    paneGit = Object.fromEntries(entries)
   }
 
   // サーバー上で生きているセッションを取得し、現ワークスペースの該当ペインを
@@ -118,6 +144,28 @@
     paneCmds = ''
     paneAutoRun = true
     paneTitle = ''
+    paneRepoUrl = ''
+    lastAutoDir = ''
+  }
+
+  // リポジトリ URL からリポジトリ名を推定する（末尾の .git / 区切りを除去）。
+  function repoNameFromUrl(url) {
+    const m = url
+      .trim()
+      .replace(/\/+$/, '')
+      .match(/([^/:]+?)(\.git)?$/)
+    return m ? m[1] : ''
+  }
+
+  // URL 入力に応じて clone 先を自動補完する。ユーザーが手で書き換えた
+  // ディレクトリは上書きしない（直前の自動補完値のときだけ更新）。
+  function onRepoUrlInput() {
+    const name = repoNameFromUrl(paneRepoUrl)
+    if (!name) return
+    if (!paneDir.trim() || paneDir === lastAutoDir) {
+      paneDir = `~/src/github/${name}`
+      lastAutoDir = paneDir
+    }
   }
 
   function submitAddPane() {
@@ -125,13 +173,19 @@
       error = '作業ディレクトリを入力してください'
       return
     }
+    const repoUrl = paneRepoUrl.trim()
     const commands = paneCmds
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean)
       .map((command) => ({ command, autoRun: paneAutoRun }))
     guard(async () => {
-      await api.addPane(current.id, paneDir.trim(), addingSlot, commands, paneTitle.trim())
+      let dir = paneDir.trim()
+      if (repoUrl) {
+        const res = await api.cloneRepo(repoUrl, dir)
+        dir = res.path
+      }
+      await api.addPane(current.id, dir, addingSlot, commands, paneTitle.trim())
       addingSlot = null
       await reloadCurrent()
     })
@@ -236,6 +290,13 @@
     })
   }
 
+  // ペインの作業ディレクトリを Finder / VS Code で開く（バックエンド経由）。
+  function openPaneIn(paneId, target) {
+    guard(async () => {
+      await api.openPaneIn(current.id, paneId, target)
+    })
+  }
+
   // 動的に挿入される input は autofocus が効かないため action で明示フォーカスする。
   function focusOnMount(el) {
     el.focus()
@@ -251,6 +312,7 @@
         activePaneId = current?.lastActivePaneId ?? current?.panes?.[0]?.id ?? null
         // リロード/再訪時に生存セッションへ自動再接続する
         await syncLiveSessions()
+        await refreshGitInfo()
       }
     })
     window.addEventListener('keydown', onKey, true)
@@ -397,7 +459,19 @@
                     onkeydown={(e) => { if (e.key === 'Enter') startEditTitle(cell.pane) }}
                   >{cell.pane.title || cell.pane.directory}</span>
                 {/if}
+                {#if paneGit[cell.pane.id]?.isRepo}
+                  <span
+                    class="git-badge"
+                    class:dirty={paneGit[cell.pane.id].dirty}
+                    title={paneGit[cell.pane.id].dirty ? '未コミットの変更あり' : 'クリーン'}
+                  >⎇ {paneGit[cell.pane.id].branch}{paneGit[cell.pane.id].dirty ? '*' : ''}</span>
+                {/if}
                 <span class="cell-actions">
+                  <button class="icon" title="Finderで開く" onclick={() => openPaneIn(cell.pane.id, 'finder')}>📁</button>
+                  <button class="icon" title="VSCodeで開く" onclick={() => openPaneIn(cell.pane.id, 'vscode')}>{'</>'}</button>
+                  {#if paneGit[cell.pane.id]?.isRepo}
+                    <button class="icon" title="リモート(GitHub)を開く" onclick={() => openPaneIn(cell.pane.id, 'github')}>🌐</button>
+                  {/if}
                   <button class="icon" title="編集" onclick={() => startEditPane(cell.pane)}>✎</button>
                   <button class="icon" title="最大化/戻す" onclick={() => toggleMaximize(cell.pane.id)}>⤢</button>
                   <button class="icon" title="削除" onclick={() => removePane(cell.pane.id)}>✕</button>
@@ -434,7 +508,14 @@
                     />
                   {/key}
                 {:else}
-                  <div class="not-open">
+                  <!-- クリックで「開く」と同じ動作（ワークスペースの未起動ペインを起動） -->
+                  <div
+                    class="not-open"
+                    role="button"
+                    tabindex="0"
+                    onclick={openWorkspace}
+                    onkeydown={(e) => { if (e.key === 'Enter') openWorkspace() }}
+                  >
                     <p>未起動</p>
                     {#if cell.pane.commands?.length}
                       <ul class="cmds">
@@ -443,7 +524,7 @@
                         {/each}
                       </ul>
                     {/if}
-                    <small class="muted">「開く」で起動します</small>
+                    <small class="muted">クリックで起動します</small>
                   </div>
                 {/if}
               </div>
@@ -453,7 +534,14 @@
                 <label>タイトル（任意）
                   <input placeholder="例: API サーバー" bind:value={paneTitle} />
                 </label>
-                <label>作業ディレクトリ
+                <label>リポジトリ URL から clone（任意）
+                  <input
+                    placeholder="https://github.com/user/repo.git"
+                    bind:value={paneRepoUrl}
+                    oninput={onRepoUrlInput}
+                  />
+                </label>
+                <label>{paneRepoUrl.trim() ? 'clone 先ディレクトリ' : '作業ディレクトリ'}
                   <input placeholder="/path/to/project" bind:value={paneDir} />
                 </label>
                 <label>起動コマンド（1行1コマンド）
@@ -464,7 +552,9 @@
                   開いたとき自動実行する
                 </label>
                 <div class="row">
-                  <button class="primary" onclick={submitAddPane} disabled={busy}>追加</button>
+                  <button class="primary" onclick={submitAddPane} disabled={busy}>
+                    {paneRepoUrl.trim() ? 'Clone して追加' : '追加'}
+                  </button>
                   <button onclick={() => (addingSlot = null)}>キャンセル</button>
                 </div>
               </div>

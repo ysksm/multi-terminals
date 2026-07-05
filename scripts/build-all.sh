@@ -74,27 +74,57 @@ build_web() {
   fi
 }
 
+# --- wails CLI を解決する（PATH → $GOBIN → $(go env GOPATH)/bin の順） ---
+# `go install` 直後で GOPATH/bin が PATH に無くても見つけられるようにする。
+WAILS=""
+resolve_wails() {
+  if command -v wails >/dev/null 2>&1; then
+    WAILS="$(command -v wails)"
+    return 0
+  fi
+  local gobin
+  gobin="$(go env GOBIN 2>/dev/null)"
+  if [ -n "$gobin" ] && [ -x "$gobin/wails" ]; then
+    WAILS="$gobin/wails"
+    return 0
+  fi
+  local gopath
+  gopath="$(go env GOPATH 2>/dev/null)"
+  if [ -n "$gopath" ] && [ -x "$gopath/bin/wails" ]; then
+    WAILS="$gopath/bin/wails"
+    return 0
+  fi
+  return 1
+}
+
 # --- Wails デスクトップ版（実行 OS 向けのみ） ---
 build_wails() {
-  if ! command -v wails >/dev/null 2>&1; then
+  if ! resolve_wails; then
     echo ">> [skip] wails CLI 未導入のため Wails ビルドをスキップします。" >&2
     echo "   導入: go install github.com/wailsapp/wails/v2/cmd/wails@latest" >&2
+    echo "   インストール先 ($(go env GOPATH)/bin) を PATH に追加するか、再実行してください。" >&2
     return 0
   fi
   case "$HOST_OS" in
     Darwin)
-      echo ">> wails: darwin/universal をビルド"
-      (cd apps/wails && wails build -platform darwin/universal -clean)
+      echo ">> wails: darwin/universal をビルド ($WAILS)"
+      (cd apps/wails && "$WAILS" build -platform darwin/universal -clean)
       # 生成物 (apps/wails/build/bin/*.app) を release/ へコピー
       if [ -d "apps/wails/build/bin" ]; then
         cp -R apps/wails/build/bin/. "$OUTDIR/"
+      else
+        echo "error: apps/wails/build/bin が見つかりません。Wails ビルドが失敗した可能性があります。" >&2
+        exit 1
       fi
       ;;
     MINGW*|MSYS*|CYGWIN*)
-      echo ">> wails: windows/amd64 をビルド"
-      (cd apps/wails && wails build -platform windows/amd64 -clean)
+      echo ">> wails: windows/amd64 をビルド ($WAILS)"
+      (cd apps/wails && "$WAILS" build -platform windows/amd64 -clean)
       if [ -d "apps/wails/build/bin" ]; then
         cp -R apps/wails/build/bin/. "$OUTDIR/"
+      else
+        echo "error: apps/wails/build/bin が見つかりません。Wails ビルドが失敗した可能性があります。" >&2
+        exit 1
       fi
       ;;
     *)

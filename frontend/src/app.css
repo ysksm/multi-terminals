@@ -205,6 +205,20 @@ textarea {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.cell-head .git-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+.cell-head .git-badge.dirty {
+  color: #e2b93d;
+  border-color: #e2b93d66;
+}
 .cell-actions {
   display: flex;
   gap: 4px;
@@ -223,6 +237,12 @@ textarea {
   justify-content: center;
   gap: 6px;
   color: var(--muted);
+  cursor: pointer;
+}
+.not-open:hover,
+.not-open:focus-visible {
+  background: rgba(127, 127, 127, 0.08);
+  color: var(--text);
 }
 .not-open .cmds {
   list-style: none;

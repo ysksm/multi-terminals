@@ -30,6 +30,9 @@ type Deps struct {
 	SetDir          *command.SetPaneDirectoryHandler
 	SetTitle        *command.SetPaneTitleHandler
 	SetCmds         *command.SetPaneStartupCommandsHandler
+	OpenIn          *command.OpenPaneInHandler
+	CloneRepo       *command.CloneRepositoryHandler
+	GetPaneGit      *query.GetPaneGitInfoHandler
 	Open            *command.OpenWorkspaceHandler
 	Write           *command.WriteToPaneHandler
 	Resize          *command.ResizePaneHandler
@@ -64,6 +67,11 @@ func NewMux(d Deps) *http.ServeMux {
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/directory", d.handleSetPaneDirectory)
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/title", d.handleSetPaneTitle)
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/commands", d.handleSetPaneCommands)
+	mux.HandleFunc("POST /api/workspaces/{id}/panes/{paneId}/open-in", d.handleOpenPaneIn)
+	mux.HandleFunc("GET /api/workspaces/{id}/panes/{paneId}/git", d.handleGetPaneGit)
+
+	// Repository actions
+	mux.HandleFunc("POST /api/repos/clone", d.handleCloneRepo)
 
 	// Global queries
 	mux.HandleFunc("GET /api/last-opened", d.handleGetLastOpened)
@@ -364,6 +372,63 @@ func (d Deps) handleSetPaneCommands(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (d Deps) handleOpenPaneIn(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	paneID := r.PathValue("paneId")
+	var body struct {
+		Target string `json:"target"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := d.OpenIn.Handle(r.Context(), command.OpenPaneInCommand{
+		WorkspaceID: id,
+		PaneID:      paneID,
+		Target:      body.Target,
+	}); err != nil {
+		mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (d Deps) handleGetPaneGit(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	paneID := r.PathValue("paneId")
+	dto, err := d.GetPaneGit.Handle(r.Context(), query.GetPaneGitInfoQuery{
+		WorkspaceID: id,
+		PaneID:      paneID,
+	})
+	if err != nil {
+		mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, dto)
+}
+
+// ---- Repository handlers ----
+
+func (d Deps) handleCloneRepo(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		URL  string `json:"url"`
+		Dest string `json:"dest"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	result, err := d.CloneRepo.Handle(r.Context(), command.CloneRepositoryCommand{
+		URL:  body.URL,
+		Dest: body.Dest,
+	})
+	if err != nil {
+		mapErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"path": result.Path})
 }
 
 // ---- Runtime handlers ----
