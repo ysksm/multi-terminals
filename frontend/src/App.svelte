@@ -4,6 +4,7 @@
   import Terminal from './lib/Terminal.svelte'
   import { neighborSlot } from './lib/paneNav.js'
   import { cycleWorkspaceId, workspaceIdAt } from './lib/workspaceNav.js'
+  import { SHORTCUT_GROUPS } from './lib/shortcuts.js'
 
   let workspaces = $state([])
   let current = $state(null) // 選択中の WorkspaceDTO
@@ -39,6 +40,9 @@
 
   // サイドバー折りたたみ
   let sidebarCollapsed = $state(localStorage.getItem('mt.sidebarCollapsed') === '1')
+
+  // ショートカット一覧モーダル
+  let showShortcuts = $state(false)
 
   // 削除確認
   let confirmingDeleteId = $state(null)
@@ -227,6 +231,19 @@
   }
 
   function onKey(e) {
+    // Cmd+/: ショートカット一覧の表示/非表示
+    if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === '/') {
+      e.preventDefault()
+      e.stopPropagation()
+      showShortcuts = !showShortcuts
+      return
+    }
+    if (showShortcuts && e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      showShortcuts = false
+      return
+    }
     // Cmd+1〜9: N 番目のワークスペースへ直接ジャンプ
     if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key >= '1' && e.key <= '9') {
       const id = workspaceIdAt(workspaces, Number(e.key) - 1)
@@ -407,6 +424,10 @@
         {/each}
       </ul>
     </section>
+
+    <button class="shortcuts-open" onclick={() => (showShortcuts = true)}>
+      <kbd>⌘</kbd><kbd>/</kbd> ショートカット一覧
+    </button>
   </aside>
 
   <main class="workspace">
@@ -586,4 +607,38 @@
       </div>
     {/if}
   </main>
+
+  {#if showShortcuts}
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="shortcuts-overlay" role="presentation" onclick={() => (showShortcuts = false)}>
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+      <div
+        class="shortcuts-modal"
+        role="dialog"
+        aria-label="キーボードショートカット"
+        tabindex="-1"
+        onclick={(e) => e.stopPropagation()}
+      >
+        <div class="shortcuts-head">
+          <h2>キーボードショートカット</h2>
+          <button class="icon" title="閉じる" onclick={() => (showShortcuts = false)}>✕</button>
+        </div>
+        {#each SHORTCUT_GROUPS as group}
+          <h3>{group.label}</h3>
+          <ul>
+            {#each group.items as item}
+              <li>
+                <span class="keys">
+                  {#each item.keys as k, i}
+                    {#if i > 0}<span class="plus">+</span>{/if}<kbd>{k}</kbd>
+                  {/each}
+                </span>
+                <span class="desc">{item.desc}</span>
+              </li>
+            {/each}
+          </ul>
+        {/each}
+      </div>
+    </div>
+  {/if}
 </div>
