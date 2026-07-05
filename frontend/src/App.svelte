@@ -4,7 +4,7 @@
   import Terminal from './lib/Terminal.svelte'
   import { neighborSlot } from './lib/paneNav.js'
   import { cycleWorkspaceId, workspaceIdAt } from './lib/workspaceNav.js'
-  import { SHORTCUT_GROUPS } from './lib/shortcuts.js'
+  import { SHORTCUT_GROUPS, paneShortcutAction } from './lib/shortcuts.js'
 
   let workspaces = $state([])
   let current = $state(null) // 選択中の WorkspaceDTO
@@ -260,6 +260,19 @@
       e.preventDefault()
       e.stopPropagation()
       if (id !== current?.id) select(id)
+      return
+    }
+    // Ctrl+Shift+Z/F/V/G: アクティブペインの最大化 / Finder / VS Code / リモート
+    const paneAction = paneShortcutAction(e)
+    if (paneAction) {
+      const pane = current?.panes?.find((p) => p.id === activePaneId) || current?.panes?.[0]
+      if (!pane) return
+      // リポジトリでないペインでは 🌐 ボタン非表示と同様に無視する
+      if (paneAction === 'github' && !paneGit[pane.id]?.isRepo) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (paneAction === 'maximize') toggleMaximize(maximized || pane.id)
+      else openPaneIn(pane.id, paneAction)
       return
     }
     if (!(e.ctrlKey && e.shiftKey) || e.altKey || e.metaKey) return
