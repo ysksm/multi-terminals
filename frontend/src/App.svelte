@@ -575,7 +575,7 @@
                 <label>タイトル（任意）
                   <input placeholder="例: API サーバー" bind:value={paneTitle} />
                 </label>
-                <label>リポジトリ URL から clone（任意）
+                <label>リポジトリ URL（任意・未 clone なら自動 clone）
                   <input
                     placeholder="https://github.com/user/repo.git"
                     bind:value={paneRepoUrl}
@@ -593,9 +593,7 @@
                   開いたとき自動実行する
                 </label>
                 <div class="row">
-                  <button class="primary" onclick={submitAddPane} disabled={busy}>
-                    {paneRepoUrl.trim() ? 'Clone して追加' : '追加'}
-                  </button>
+                  <button class="primary" onclick={submitAddPane} disabled={busy}>追加</button>
                   <button onclick={() => (addingSlot = null)}>キャンセル</button>
                 </div>
               </div>

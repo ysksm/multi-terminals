@@ -109,6 +109,48 @@ func TestClone(t *testing.T) {
 	}
 }
 
+func TestClone_ExistingRepoReused(t *testing.T) {
+	src := initRepo(t)
+	dest := initRepo(t) // 既に clone 済み相当のリポジトリ
+	marker := filepath.Join(dest, "local-change.txt")
+	if err := os.WriteFile(marker, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := New()
+	path, err := s.Clone(src, dest)
+	if err != nil {
+		t.Fatalf("Clone into existing repo: %v", err)
+	}
+	if path != dest {
+		t.Errorf("Clone path = %q, want %q", path, dest)
+	}
+	// clone は実行されず、既存の内容が保持される
+	if _, err := os.Stat(marker); err != nil {
+		t.Errorf("existing repo content lost: %v", err)
+	}
+}
+
+func TestClone_ExistingRepoReused_TildeExpanded(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := filepath.Join(home, "src", "repo")
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("git", "-C", repo, "init", "-b", "main")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	s := New()
+	path, err := s.Clone("git@example.com:user/repo.git", "~/src/repo")
+	if err != nil {
+		t.Fatalf("Clone with tilde dest: %v", err)
+	}
+	if path != repo {
+		t.Errorf("Clone path = %q, want %q", path, repo)
+	}
+}
+
 func TestClone_DestExists(t *testing.T) {
 	src := initRepo(t)
 	dest := t.TempDir()
