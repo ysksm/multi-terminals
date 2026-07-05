@@ -126,9 +126,18 @@ textarea {
   background: var(--accent-bg);
 }
 .list .name {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.list .ws-key {
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 3px;
+  flex-shrink: 0;
 }
 .badge {
   font-size: 11px;

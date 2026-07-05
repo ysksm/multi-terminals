@@ -3,6 +3,7 @@
   import { api, LAYOUTS, layoutOf } from './lib/api.js'
   import Terminal from './lib/Terminal.svelte'
   import { neighborSlot } from './lib/paneNav.js'
+  import { cycleWorkspaceId, workspaceIdAt } from './lib/workspaceNav.js'
 
   let workspaces = $state([])
   let current = $state(null) // 選択中の WorkspaceDTO
@@ -226,6 +227,24 @@
   }
 
   function onKey(e) {
+    // Cmd+1〜9: N 番目のワークスペースへ直接ジャンプ
+    if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key >= '1' && e.key <= '9') {
+      const id = workspaceIdAt(workspaces, Number(e.key) - 1)
+      if (id == null) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (id !== current?.id) select(id)
+      return
+    }
+    // Ctrl+Alt+↑/↓: 前/次のワークスペースへ（端で巡回）
+    if (e.ctrlKey && e.altKey && !e.shiftKey && !e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      const id = cycleWorkspaceId(workspaces, current?.id ?? null, e.key === 'ArrowDown' ? 1 : -1)
+      if (id == null) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (id !== current?.id) select(id)
+      return
+    }
     if (!(e.ctrlKey && e.shiftKey) || e.altKey || e.metaKey) return
     const dirs = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
     const dir = dirs[e.key]
@@ -355,9 +374,10 @@
         <p class="muted">まだありません</p>
       {/if}
       <ul>
-        {#each workspaces as w}
+        {#each workspaces as w, i}
           <li>
             <button class="ws-select" class:active={current?.id === w.id} onclick={() => select(w.id)}>
+              {#if i < 9}<span class="ws-key" title="⌘{i + 1} で切替">⌘{i + 1}</span>{/if}
               <span class="name">{w.name}</span>
               <span class="badge">{layoutOf(w.layout).label}</span>
             </button>
