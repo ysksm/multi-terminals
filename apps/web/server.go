@@ -35,6 +35,9 @@ type Deps struct {
 	OpenIn          *command.OpenPaneInHandler
 	CloneRepo       *command.CloneRepositoryHandler
 	GetPaneGit      *query.GetPaneGitInfoHandler
+	GitBranches     *query.ListPaneBranchesHandler
+	GitCheckout     *command.CheckoutPaneBranchHandler
+	GitOp           *command.RunPaneGitOpHandler
 	Open            *command.OpenWorkspaceHandler
 	Write           *command.WriteToPaneHandler
 	Resize          *command.ResizePaneHandler
@@ -80,6 +83,9 @@ func NewMux(d Deps) *http.ServeMux {
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/commands", d.handleSetPaneCommands)
 	mux.HandleFunc("POST /api/workspaces/{id}/panes/{paneId}/open-in", d.handleOpenPaneIn)
 	mux.HandleFunc("GET /api/workspaces/{id}/panes/{paneId}/git", d.handleGetPaneGit)
+	mux.HandleFunc("GET /api/workspaces/{id}/panes/{paneId}/git/branches", d.handleListPaneBranches)
+	mux.HandleFunc("POST /api/workspaces/{id}/panes/{paneId}/git/checkout", d.handleGitCheckout)
+	mux.HandleFunc("POST /api/workspaces/{id}/panes/{paneId}/git/{op}", d.handleGitOp)
 
 	// Repository actions
 	mux.HandleFunc("POST /api/repos/clone", d.handleCloneRepo)
@@ -458,6 +464,59 @@ func (d Deps) handleGetPaneGit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, dto)
+}
+
+func (d Deps) handleListPaneBranches(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	paneID := r.PathValue("paneId")
+	dtos, err := d.GitBranches.Handle(r.Context(), query.ListPaneBranchesQuery{
+		WorkspaceID: id,
+		PaneID:      paneID,
+	})
+	if err != nil {
+		mapErr(w, err)
+		return
+	}
+	if dtos == nil {
+		dtos = []query.PaneBranchDTO{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"branches": dtos})
+}
+
+func (d Deps) handleGitCheckout(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	paneID := r.PathValue("paneId")
+	var body struct {
+		Branch string `json:"branch"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := d.GitCheckout.Handle(r.Context(), command.CheckoutPaneBranchCommand{
+		WorkspaceID: id,
+		PaneID:      paneID,
+		Branch:      body.Branch,
+	}); err != nil {
+		mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (d Deps) handleGitOp(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	paneID := r.PathValue("paneId")
+	op := r.PathValue("op")
+	if err := d.GitOp.Handle(r.Context(), command.RunPaneGitOpCommand{
+		WorkspaceID: id,
+		PaneID:      paneID,
+		Op:          op,
+	}); err != nil {
+		mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ---- Repository handlers ----
