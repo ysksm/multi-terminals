@@ -1,11 +1,10 @@
 package remoteterm
 
 import (
-	"crypto/subtle"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -13,43 +12,33 @@ import (
 	"github.com/ysksm/multi-terminals/core/application/port"
 )
 
-// startTimeout bounds how long the server waits for the initial start message
-// after the WebSocket upgrade.
+// startTimeout bounds how long the server waits for the auth and start
+// messages after the WebSocket upgrade.
 const startTimeout = 10 * time.Second
 
+// nonceSize is the length of the random challenge nonce in bytes.
+const nonceSize = 32
+
 // upgrader configures WebSocket upgrade behaviour for the remote endpoint.
-// Access control is enforced by the bearer token, not the Origin header —
+// Access control is enforced by key authentication, not the Origin header —
 // connections come from other multi-terminals backends, not browsers.
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
-}
-
-// bearerToken extracts the token from an "Authorization: Bearer <token>" header.
-func bearerToken(r *http.Request) string {
-	h := r.Header.Get("Authorization")
-	const prefix = "Bearer "
-	if len(h) > len(prefix) && strings.EqualFold(h[:len(prefix)], prefix) {
-		return h[len(prefix):]
-	}
-	return ""
 }
 
 // Handler returns the HTTP handler for the remote-terminal endpoint.
 // runner starts sessions on THIS machine (the listening side); its output is
 // streamed back to the connecting instance.
 //
-// token is the shared secret required from callers. When token is empty the
-// endpoint is disabled and every request is rejected with 403, so a server
-// never exposes shell execution unless explicitly configured.
-func Handler(runner port.TerminalRunner, token string) http.HandlerFunc {
+// auth is the list of client public keys allowed to connect. While the list
+// is empty the endpoint is disabled and every request is rejected with 403,
+// so a server never exposes shell execution unless keys were explicitly
+// authorized. Each connection must pass an Ed25519 challenge-response before
+// a terminal is started.
+func Handler(runner port.TerminalRunner, auth *AuthorizedKeys) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if token == "" {
-			http.Error(w, `{"error":"remote access disabled: no MULTI_TERMINALS_REMOTE_TOKEN configured"}`, http.StatusForbidden)
-			return
-		}
-		got := bearerToken(r)
-		if subtle.ConstantTimeCompare([]byte(got), []byte(token)) != 1 {
-			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+		if !auth.Enabled() {
+			http.Error(w, `{"error":"remote access disabled: no authorized keys configured"}`, http.StatusForbidden)
 			return
 		}
 
@@ -75,8 +64,37 @@ func Handler(runner port.TerminalRunner, token string) http.HandlerFunc {
 			return wsWrite(websocket.TextMessage, b)
 		}
 
-		// First message must be "start".
+		// Challenge-response authentication: send a fresh nonce, require a
+		// valid signature from an authorized key before anything else.
+		nonce := make([]byte, nonceSize)
+		if _, err := rand.Read(nonce); err != nil {
+			_ = writeCtl(controlMsg{Type: msgError, Error: "internal error"})
+			return
+		}
+		if err := writeCtl(controlMsg{Type: msgChallenge, Nonce: base64.StdEncoding.EncodeToString(nonce)}); err != nil {
+			return
+		}
+
 		_ = ws.SetReadDeadline(time.Now().Add(startTimeout))
+		var authMsg controlMsg
+		if _, msgBytes, err := ws.ReadMessage(); err != nil {
+			return
+		} else if err := json.Unmarshal(msgBytes, &authMsg); err != nil || authMsg.Type != msgAuth {
+			_ = writeCtl(controlMsg{Type: msgError, Error: "expected auth message"})
+			return
+		}
+		pub, err := ParsePublicKey(authMsg.PublicKey)
+		if err != nil {
+			_ = writeCtl(controlMsg{Type: msgError, Error: "unauthorized"})
+			return
+		}
+		sig, err := base64.StdEncoding.DecodeString(authMsg.Signature)
+		if err != nil || !auth.IsAuthorized(pub) || !verifyAuth(pub, nonce, sig) {
+			_ = writeCtl(controlMsg{Type: msgError, Error: "unauthorized"})
+			return
+		}
+
+		// Next message must be "start".
 		var start controlMsg
 		if _, msgBytes, err := ws.ReadMessage(); err != nil {
 			return

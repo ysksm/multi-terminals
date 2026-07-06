@@ -14,19 +14,18 @@ import (
 )
 
 // TestEndToEndRemoteExecution exercises remote execution across TWO full
-// backend instances: instance B listens with a remote token; instance A has a
-// pane whose remoteHost points at B. Opening the workspace on A dials B's
-// remote-terminal endpoint, B spawns a REAL shell PTY locally, and the
-// shell's output streams back through A to a browser-facing WebSocket.
+// backend instances with the real key-exchange flow: instance A's
+// auto-generated public key is fetched from its identity endpoint and
+// authorized on instance B via B's REST API. A pane on A whose remoteHost
+// points at B then opens: A answers B's challenge with its key, B spawns a
+// REAL shell PTY locally, and the shell's output streams back through A to a
+// browser-facing WebSocket.
 func TestEndToEndRemoteExecution(t *testing.T) {
 	newline := "\n"
 	if runtime.GOOS == "windows" {
 		t.Setenv("MULTI_TERMINALS_SHELL", "cmd.exe")
 		newline = "\r\n"
 	}
-
-	// Shared token: B requires it on its endpoint, A uses it when dialing.
-	t.Setenv("MULTI_TERMINALS_REMOTE_TOKEN", "e2e-remote-token")
 
 	// Instance B: the listening host that executes terminals locally.
 	depsB, err := BuildDeps(t.TempDir())
@@ -44,6 +43,20 @@ func TestEndToEndRemoteExecution(t *testing.T) {
 	srvA := httptest.NewServer(NewMux(depsA))
 	defer srvA.Close()
 
+	getJSON := func(base, path string) map[string]any {
+		t.Helper()
+		resp, err := http.Get(base + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			t.Fatalf("GET %s: status %d", path, resp.StatusCode)
+		}
+		out := map[string]any{}
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return out
+	}
 	postJSON := func(base, path string, body any) map[string]any {
 		t.Helper()
 		var buf bytes.Buffer
@@ -67,7 +80,19 @@ func TestEndToEndRemoteExecution(t *testing.T) {
 		return out
 	}
 
-	// 1. on A: create a workspace with a pane that executes on B.
+	// 1. key exchange: fetch A's auto-generated public key, authorize it on B.
+	identityA := getJSON(srvA.URL, "/api/remote/identity")
+	pubA, _ := identityA["publicKey"].(string)
+	if pubA == "" {
+		t.Fatalf("no publicKey in identity response: %v", identityA)
+	}
+	postJSON(srvB.URL, "/api/remote/authorized-keys", map[string]any{"key": pubA, "comment": "machine A"})
+	authList := getJSON(srvB.URL, "/api/remote/authorized-keys")
+	if enabled, _ := authList["enabled"].(bool); !enabled {
+		t.Fatalf("B must report remote access enabled after authorizing a key: %v", authList)
+	}
+
+	// 2. on A: create a workspace with a pane that executes on B.
 	ws := postJSON(srvA.URL, "/api/workspaces", map[string]any{"name": "e2e-remote", "layout": "single"})
 	wsID, _ := ws["id"].(string)
 	if wsID == "" {
@@ -84,7 +109,7 @@ func TestEndToEndRemoteExecution(t *testing.T) {
 		t.Fatalf("no pane id in response: %v", pane)
 	}
 
-	// 2. open the workspace on A -> A dials B, B spawns the real shell PTY.
+	// 3. open the workspace on A -> A authenticates to B, B spawns the shell.
 	opened := postJSON(srvA.URL, "/api/workspaces/"+wsID+"/open", nil)
 	panes, _ := opened["panes"].([]any)
 	if len(panes) != 1 {
@@ -102,7 +127,7 @@ func TestEndToEndRemoteExecution(t *testing.T) {
 		}
 	})
 
-	// 3. browser-facing WebSocket on A for the remote pane.
+	// 4. browser-facing WebSocket on A for the remote pane.
 	wsURL := "ws" + strings.TrimPrefix(srvA.URL, "http") + "/api/panes/" + paneID + "/io"
 	conn, dialResp, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
@@ -116,7 +141,7 @@ func TestEndToEndRemoteExecution(t *testing.T) {
 	}
 	defer conn.Close()
 
-	// 4. type a command; it must execute on B's shell and stream back via A.
+	// 5. type a command; it must execute on B's shell and stream back via A.
 	const marker = "e2e_remote_marker_24680"
 	input, _ := json.Marshal(map[string]any{"type": "input", "data": "echo " + marker + newline})
 	if err := conn.WriteMessage(websocket.TextMessage, input); err != nil {
@@ -141,12 +166,11 @@ func TestEndToEndRemoteExecution(t *testing.T) {
 	t.Fatalf("did not observe marker %q in remote PTY output within deadline; got:\n%s", marker, acc.String())
 }
 
-// TestEndToEndRemoteExecutionRejectedWithoutToken verifies that opening a
-// workspace whose pane targets a host with NO remote token configured fails
-// instead of silently starting a local terminal.
-func TestEndToEndRemoteExecutionRejectedWithoutToken(t *testing.T) {
-	// B has no token -> its remote endpoint is disabled.
-	t.Setenv("MULTI_TERMINALS_REMOTE_TOKEN", "")
+// TestEndToEndRemoteExecutionRejectedWithoutAuthorization verifies that
+// opening a workspace whose pane targets a host that has NOT authorized this
+// instance's key fails instead of silently starting a local terminal.
+func TestEndToEndRemoteExecutionRejectedWithoutAuthorization(t *testing.T) {
+	// B authorizes nothing -> its remote endpoint is disabled.
 	depsB, err := BuildDeps(t.TempDir())
 	if err != nil {
 		t.Fatalf("BuildDeps(B): %v", err)
@@ -154,7 +178,6 @@ func TestEndToEndRemoteExecutionRejectedWithoutToken(t *testing.T) {
 	srvB := httptest.NewServer(NewMux(depsB))
 	defer srvB.Close()
 
-	t.Setenv("MULTI_TERMINALS_REMOTE_TOKEN", "a-token")
 	depsA, err := BuildDeps(t.TempDir())
 	if err != nil {
 		t.Fatalf("BuildDeps(A): %v", err)

@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -13,22 +16,42 @@ import (
 	"github.com/ysksm/multi-terminals/core/application/port"
 )
 
-const testToken = "test-secret"
+// newIdentity generates a fresh instance identity in a temp dir.
+func newIdentity(t *testing.T) *Identity {
+	t.Helper()
+	id, err := LoadOrCreateIdentity(t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadOrCreateIdentity: %v", err)
+	}
+	return id
+}
+
+// newAuthKeys returns an AuthorizedKeys store authorizing the given keys.
+func newAuthKeys(t *testing.T, authorized ...*Identity) *AuthorizedKeys {
+	t.Helper()
+	a := NewAuthorizedKeys(filepath.Join(t.TempDir(), AuthorizedKeysFile))
+	for _, id := range authorized {
+		if err := a.Add(id.PublicKeyString(), "test"); err != nil {
+			t.Fatalf("Add: %v", err)
+		}
+	}
+	return a
+}
 
 // newTestServer starts an httptest server exposing the remote-terminal
-// endpoint backed by a fake runner, and returns both.
-func newTestServer(t *testing.T, token string) (*httptest.Server, *apptest.FakeTerminalRunner) {
+// endpoint backed by a fake runner, authorizing the given client identities.
+func newTestServer(t *testing.T, authorized ...*Identity) (*httptest.Server, *apptest.FakeTerminalRunner) {
 	t.Helper()
 	runner := apptest.NewFakeTerminalRunner()
-	srv := httptest.NewServer(Handler(runner, token))
+	srv := httptest.NewServer(Handler(runner, newAuthKeys(t, authorized...)))
 	t.Cleanup(srv.Close)
 	return srv, runner
 }
 
 // startRemote dials the test server and starts a remote session.
-func startRemote(t *testing.T, srv *httptest.Server, token, sessionID string) port.TerminalSession {
+func startRemote(t *testing.T, srv *httptest.Server, id *Identity, sessionID string) port.TerminalSession {
 	t.Helper()
-	r := NewRunner(token)
+	r := NewRunner(id)
 	sess, err := r.Start(context.Background(), port.TerminalStartRequest{
 		SessionID:  sessionID,
 		Dir:        "/tmp",
@@ -57,8 +80,9 @@ func eventually(t *testing.T, what string, cond func() bool) {
 }
 
 func TestRemoteSession_EndToEnd(t *testing.T) {
-	srv, runner := newTestServer(t, testToken)
-	sess := startRemote(t, srv, testToken, "pane-1")
+	id := newIdentity(t)
+	srv, runner := newTestServer(t, id)
+	sess := startRemote(t, srv, id, "pane-1")
 	defer sess.Close()
 
 	if got := sess.ID(); got != "pane-1" {
@@ -121,8 +145,9 @@ func TestRemoteSession_EndToEnd(t *testing.T) {
 }
 
 func TestRemoteSession_RemoteExitEndsLocalSession(t *testing.T) {
-	srv, runner := newTestServer(t, testToken)
-	sess := startRemote(t, srv, testToken, "pane-2")
+	id := newIdentity(t)
+	srv, runner := newTestServer(t, id)
+	sess := startRemote(t, srv, id, "pane-2")
 	defer sess.Close()
 
 	var remote *apptest.FakeTerminalSession
@@ -144,49 +169,155 @@ func TestRemoteSession_RemoteExitEndsLocalSession(t *testing.T) {
 	}
 }
 
-func TestHandler_DisabledWithoutToken(t *testing.T) {
-	srv, _ := newTestServer(t, "")
-	r := NewRunner("anything")
+func TestHandler_DisabledWithoutAuthorizedKeys(t *testing.T) {
+	srv, _ := newTestServer(t) // no keys authorized
+	r := NewRunner(newIdentity(t))
 	_, err := r.Start(context.Background(), port.TerminalStartRequest{
 		SessionID: "p", RemoteHost: srv.URL,
 	})
 	if err == nil {
-		t.Fatal("expected error when server has no token configured")
+		t.Fatal("expected error when server has no authorized keys")
 	}
 	if !strings.Contains(err.Error(), "403") {
 		t.Errorf("error = %v, want HTTP 403", err)
 	}
 }
 
-func TestHandler_RejectsBadToken(t *testing.T) {
-	srv, runner := newTestServer(t, testToken)
-	r := NewRunner("wrong-token")
+func TestHandler_RejectsUnauthorizedKey(t *testing.T) {
+	authorized := newIdentity(t)
+	srv, runner := newTestServer(t, authorized)
+
+	intruder := newIdentity(t) // valid keypair, but not in the authorized list
+	r := NewRunner(intruder)
 	_, err := r.Start(context.Background(), port.TerminalStartRequest{
 		SessionID: "p", RemoteHost: srv.URL,
 	})
 	if err == nil {
-		t.Fatal("expected error with wrong token")
+		t.Fatal("expected error with unauthorized key")
 	}
-	if !strings.Contains(err.Error(), "401") {
-		t.Errorf("error = %v, want HTTP 401", err)
+	if !strings.Contains(err.Error(), "unauthorized") {
+		t.Errorf("error = %v, want unauthorized", err)
 	}
 	if len(runner.Started) != 0 {
 		t.Errorf("no session must be started on auth failure, got %d", len(runner.Started))
 	}
 }
 
+func TestHandler_RejectsBadSignature(t *testing.T) {
+	// Client presents an AUTHORIZED public key but signs with a DIFFERENT
+	// private key — the signature check must reject it.
+	authorized := newIdentity(t)
+	srv, runner := newTestServer(t, authorized)
+
+	forger := newIdentity(t)
+	forger.pub = authorized.pub // claim the authorized identity, keep own private key
+	r := NewRunner(forger)
+	_, err := r.Start(context.Background(), port.TerminalStartRequest{
+		SessionID: "p", RemoteHost: srv.URL,
+	})
+	if err == nil || !strings.Contains(err.Error(), "unauthorized") {
+		t.Errorf("error = %v, want unauthorized", err)
+	}
+	if len(runner.Started) != 0 {
+		t.Errorf("no session must be started on forged signature, got %d", len(runner.Started))
+	}
+}
+
 func TestHandler_StartErrorIsReturnedToCaller(t *testing.T) {
+	id := newIdentity(t)
 	runner := apptest.NewFakeTerminalRunner()
 	runner.StartErr = errors.New("no such directory")
-	srv := httptest.NewServer(Handler(runner, testToken))
+	srv := httptest.NewServer(Handler(runner, newAuthKeys(t, id)))
 	defer srv.Close()
 
-	r := NewRunner(testToken)
+	r := NewRunner(id)
 	_, err := r.Start(context.Background(), port.TerminalStartRequest{
 		SessionID: "p", RemoteHost: srv.URL,
 	})
 	if err == nil || !strings.Contains(err.Error(), "no such directory") {
 		t.Errorf("error = %v, want to contain server start error", err)
+	}
+}
+
+func TestLoadOrCreateIdentity_GeneratesAndReloads(t *testing.T) {
+	dir := t.TempDir()
+
+	id1, err := LoadOrCreateIdentity(dir)
+	if err != nil {
+		t.Fatalf("LoadOrCreateIdentity (create): %v", err)
+	}
+	if !strings.HasPrefix(id1.PublicKeyString(), keyPrefix) {
+		t.Errorf("public key = %q, want %q prefix", id1.PublicKeyString(), keyPrefix)
+	}
+	if !strings.HasPrefix(id1.Fingerprint(), "SHA256:") {
+		t.Errorf("fingerprint = %q, want SHA256: prefix", id1.Fingerprint())
+	}
+
+	// The private key file must exist with private permissions (Unix only).
+	info, err := os.Stat(filepath.Join(dir, PrivateKeyFile))
+	if err != nil {
+		t.Fatalf("stat private key: %v", err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Errorf("private key mode = %v, want 0600", info.Mode().Perm())
+	}
+
+	// The .pub file must contain the same public key.
+	pubData, err := os.ReadFile(filepath.Join(dir, PublicKeyFile))
+	if err != nil {
+		t.Fatalf("read public key file: %v", err)
+	}
+	if strings.TrimSpace(string(pubData)) != id1.PublicKeyString() {
+		t.Errorf("pub file = %q, want %q", strings.TrimSpace(string(pubData)), id1.PublicKeyString())
+	}
+
+	// A second load must return the SAME key, not generate a new one.
+	id2, err := LoadOrCreateIdentity(dir)
+	if err != nil {
+		t.Fatalf("LoadOrCreateIdentity (reload): %v", err)
+	}
+	if id1.PublicKeyString() != id2.PublicKeyString() {
+		t.Errorf("reloaded key differs: %q vs %q", id1.PublicKeyString(), id2.PublicKeyString())
+	}
+}
+
+func TestAuthorizedKeys_AddListRemove(t *testing.T) {
+	a := NewAuthorizedKeys(filepath.Join(t.TempDir(), AuthorizedKeysFile))
+	if a.Enabled() {
+		t.Error("empty store must be disabled")
+	}
+
+	id := newIdentity(t)
+	if err := a.Add(id.PublicKeyString(), "laptop"); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if !a.Enabled() || !a.IsAuthorized(id.pub) {
+		t.Error("added key must be authorized and enable the store")
+	}
+	keys := a.List()
+	if len(keys) != 1 || keys[0].Comment != "laptop" || keys[0].Key != id.PublicKeyString() {
+		t.Errorf("List = %+v", keys)
+	}
+
+	// Re-adding updates the comment without duplicating.
+	if err := a.Add(id.PublicKeyString(), "desktop"); err != nil {
+		t.Fatalf("Add (update): %v", err)
+	}
+	keys = a.List()
+	if len(keys) != 1 || keys[0].Comment != "desktop" {
+		t.Errorf("List after update = %+v", keys)
+	}
+
+	// Invalid keys are rejected.
+	if err := a.Add("not-a-key", ""); err == nil {
+		t.Error("Add must reject malformed keys")
+	}
+
+	if err := a.Remove(id.PublicKeyString()); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if a.Enabled() || a.IsAuthorized(id.pub) {
+		t.Error("removed key must not be authorized")
 	}
 }
 

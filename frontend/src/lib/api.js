@@ -49,6 +49,11 @@ export const api = {
   cloneRepo: (url, dest) => req('POST', '/api/repos/clone', { url, dest }),
   open: (id) => req('POST', `/api/workspaces/${id}/open`),
   deleteWorkspace: (id) => req('DELETE', `/api/workspaces/${id}`),
+  // リモート実行の鍵管理
+  remoteIdentity: () => req('GET', '/api/remote/identity'),
+  listAuthorizedKeys: () => req('GET', '/api/remote/authorized-keys'),
+  addAuthorizedKey: (key, comment) => req('POST', '/api/remote/authorized-keys', { key, comment }),
+  removeAuthorizedKey: (key) => req('DELETE', `/api/remote/authorized-keys?key=${encodeURIComponent(key)}`),
 }
 
 // レイアウトプリセットの定義（バックエンドの値と一致させる）。

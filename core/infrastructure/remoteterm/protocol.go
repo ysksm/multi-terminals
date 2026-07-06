@@ -9,6 +9,8 @@
 //
 // Wire protocol (all control messages are JSON text frames):
 //
+//	server → client  {"type":"challenge","nonce":"<base64>"}
+//	client → server  {"type":"auth","publicKey":"ed25519:<base64>","signature":"<base64>"}
 //	client → server  {"type":"start","sessionId":..,"dir":..,"shell":..,"cols":..,"rows":..}
 //	server → client  {"type":"started"}  or  {"type":"error","error":".."}
 //	client → server  {"type":"input","data":"<base64>"} | {"type":"resize","cols":..,"rows":..}
@@ -18,9 +20,12 @@
 // Input bytes are base64-encoded because raw terminal input is arbitrary
 // binary data and JSON strings must be valid UTF-8.
 //
-// Authentication uses a shared token sent as "Authorization: Bearer <token>".
-// The server rejects all connections when no token is configured, so remote
-// execution is opt-in.
+// Authentication is Ed25519 public-key challenge-response: the server sends a
+// fresh random nonce, the client signs it with its auto-generated instance
+// key (see Identity), and the server verifies the signature against its
+// authorized-keys list (see AuthorizedKeys). No secret ever crosses the wire,
+// and the server rejects all connections while its authorized list is empty,
+// so remote execution is opt-in per client key.
 package remoteterm
 
 // EndpointPath is the HTTP path the remote-terminal WebSocket endpoint is
@@ -29,12 +34,14 @@ const EndpointPath = "/api/remote/terminal"
 
 // Control message type values.
 const (
-	msgStart   = "start"
-	msgStarted = "started"
-	msgError   = "error"
-	msgInput   = "input"
-	msgResize  = "resize"
-	msgExit    = "exit"
+	msgChallenge = "challenge"
+	msgAuth      = "auth"
+	msgStart     = "start"
+	msgStarted   = "started"
+	msgError     = "error"
+	msgInput     = "input"
+	msgResize    = "resize"
+	msgExit      = "exit"
 )
 
 // controlMsg is the JSON envelope for all text-frame control messages in both
@@ -56,4 +63,11 @@ type controlMsg struct {
 
 	// type=="error"
 	Error string `json:"error,omitempty"`
+
+	// type=="challenge": base64-encoded random nonce to sign
+	Nonce string `json:"nonce,omitempty"`
+
+	// type=="auth": client public key and base64 signature over the nonce
+	PublicKey string `json:"publicKey,omitempty"`
+	Signature string `json:"signature,omitempty"`
 }

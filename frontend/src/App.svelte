@@ -46,6 +46,14 @@
   // ショートカット一覧モーダル
   let showShortcuts = $state(false)
 
+  // リモート設定モーダル（自分の公開鍵表示・許可鍵の管理）
+  let showRemoteSettings = $state(false)
+  let remoteIdentity = $state(null) // {publicKey, fingerprint}
+  let authorizedKeys = $state([]) // [{key, comment, fingerprint}]
+  let newAuthKey = $state('')
+  let newAuthComment = $state('')
+  let copiedPubKey = $state(false)
+
   // 削除確認
   let confirmingDeleteId = $state(null)
 
@@ -247,6 +255,12 @@
       showShortcuts = false
       return
     }
+    if (showRemoteSettings && e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      showRemoteSettings = false
+      return
+    }
     // Cmd+1〜9: N 番目のワークスペースへ直接ジャンプ
     if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key >= '1' && e.key <= '9') {
       const id = workspaceIdAt(workspaces, Number(e.key) - 1)
@@ -342,6 +356,48 @@
       editingPaneId = null
       await reloadCurrent()
     })
+  }
+
+  // リモート設定モーダルを開き、自分の公開鍵と許可鍵リストを読み込む。
+  function openRemoteSettings() {
+    showRemoteSettings = true
+    copiedPubKey = false
+    guard(async () => {
+      remoteIdentity = await api.remoteIdentity()
+      await reloadAuthorizedKeys()
+    })
+  }
+  async function reloadAuthorizedKeys() {
+    const res = await api.listAuthorizedKeys()
+    authorizedKeys = res?.keys || []
+  }
+  function addAuthorizedKey() {
+    if (!newAuthKey.trim()) {
+      error = '公開鍵を入力してください'
+      return
+    }
+    guard(async () => {
+      await api.addAuthorizedKey(newAuthKey.trim(), newAuthComment.trim())
+      newAuthKey = ''
+      newAuthComment = ''
+      await reloadAuthorizedKeys()
+    })
+  }
+  function removeAuthorizedKey(key) {
+    guard(async () => {
+      await api.removeAuthorizedKey(key)
+      await reloadAuthorizedKeys()
+    })
+  }
+  async function copyPublicKey() {
+    if (!remoteIdentity?.publicKey) return
+    try {
+      await navigator.clipboard.writeText(remoteIdentity.publicKey)
+      copiedPubKey = true
+      setTimeout(() => (copiedPubKey = false), 1500)
+    } catch {
+      // クリップボード不可の環境ではテキストを選択してもらう
+    }
   }
 
   // ペインの作業ディレクトリを Finder / VS Code で開く（バックエンド経由）。
@@ -443,6 +499,9 @@
       </ul>
     </section>
 
+    <button class="shortcuts-open" onclick={openRemoteSettings}>
+      🔑 リモート設定
+    </button>
     <button class="shortcuts-open" onclick={() => (showShortcuts = true)}>
       <kbd>⌘</kbd><kbd>/</kbd> ショートカット一覧
     </button>
@@ -632,6 +691,60 @@
       </div>
     {/if}
   </main>
+
+  {#if showRemoteSettings}
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="shortcuts-overlay" role="presentation" onclick={() => (showRemoteSettings = false)}>
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+      <div
+        class="shortcuts-modal remote-modal"
+        role="dialog"
+        aria-label="リモート設定"
+        tabindex="-1"
+        onclick={(e) => e.stopPropagation()}
+      >
+        <div class="shortcuts-head">
+          <h2>🔑 リモート設定</h2>
+          <button class="icon" title="閉じる" onclick={() => (showRemoteSettings = false)}>✕</button>
+        </div>
+
+        <h3>この端末の公開鍵</h3>
+        <p class="muted remote-note">
+          初回起動時に自動生成された鍵です。他の端末で実行したいときは、この公開鍵を<strong>実行側（待ち受け側）</strong>の「許可された鍵」に追加してください。
+        </p>
+        {#if remoteIdentity}
+          <div class="pubkey-row">
+            <input class="pubkey" readonly value={remoteIdentity.publicKey} onfocus={(e) => e.currentTarget.select()} />
+            <button onclick={copyPublicKey}>{copiedPubKey ? '✓ コピー済み' : 'コピー'}</button>
+          </div>
+          <p class="muted remote-note">フィンガープリント: <code>{remoteIdentity.fingerprint}</code></p>
+        {/if}
+
+        <h3>許可された鍵（この端末での実行を許可）</h3>
+        <p class="muted remote-note">
+          1つ以上許可すると、この端末はリモート実行の接続を受け付けます。空の間は待ち受け無効です。
+        </p>
+        {#if authorizedKeys.length === 0}
+          <p class="muted">許可された鍵はありません（待ち受け無効）</p>
+        {:else}
+          <ul class="auth-keys">
+            {#each authorizedKeys as k (k.key)}
+              <li>
+                <span class="auth-key-comment">{k.comment || '（コメントなし）'}</span>
+                <code class="auth-key-fp" title={k.key}>{k.fingerprint}</code>
+                <button class="icon danger" title="削除" onclick={() => removeAuthorizedKey(k.key)}>✕</button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <div class="add-key">
+          <input placeholder="ed25519:… （相手端末の公開鍵）" bind:value={newAuthKey} />
+          <input class="key-comment" placeholder="コメント（例: ノートPC）" bind:value={newAuthComment} />
+          <button class="primary" onclick={addAuthorizedKey} disabled={busy}>追加</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   {#if showShortcuts}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->

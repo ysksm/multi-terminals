@@ -121,27 +121,21 @@ Windows / macOS 両方の成果物は GitHub Actions（`.github/workflows/build.
                      └─ /api/remote/terminal（Bearer トークン認証）─┘
 ```
 
-### 1. 待ち受け側（マシン B）
+### 認証（Ed25519 公開鍵・自動生成）
 
-共有トークンを設定して起動します。**トークン未設定のときリモート受付は無効**（403）なので、意図せずシェルが公開されることはありません。
+各インスタンスは**初回起動時に Ed25519 鍵ペアを自動生成**します（`MULTI_TERMINALS_DIR` 配下の `remote_key` / `remote_key.pub`）。接続は SSH 風のチャレンジ・レスポンスで認証され、**待ち受け側の「許可された鍵」リストに載っている公開鍵だけ**が接続できます。リストが空の間は待ち受け自体が無効（403）なので、意図せずシェルが公開されることはありません。秘密情報がネットワークを流れることもありません。
 
-```sh
-MULTI_TERMINALS_REMOTE_TOKEN=<共有シークレット> PORT=8080 ./bin/multi-terminals
-```
+### セットアップ手順
 
-### 2. 接続側（マシン A）
-
-同じトークンを設定して起動し、ペインの追加/編集フォームの「リモートホスト」に待ち受け側のアドレス（例: `192.168.1.10:8080`、`https://host.example`）を入力します。空欄なら従来どおりローカル実行です。
-
-```sh
-MULTI_TERMINALS_REMOTE_TOKEN=<共有シークレット> ./bin/multi-terminals
-```
+1. **接続側（マシン A）**: サイドバーの「🔑 リモート設定」を開き、「この端末の公開鍵」（`ed25519:…`）をコピー
+2. **待ち受け側（マシン B）**: 同じく「🔑 リモート設定」を開き、「許可された鍵」に A の公開鍵を追加（＝この時点で待ち受けが有効になる）
+3. **マシン A**: ペインの追加/編集フォームの「リモートホスト」に B のアドレス（例: `192.168.1.10:8080`、`https://host.example`）を入力。空欄なら従来どおりローカル実行
 
 ワークスペースを「開く」と、リモートホスト付きペインはマシン B 上でシェルを起動し、キー入力・リサイズは B へ、出力は A へ双方向に流れます。リモートペインもスクロールバック復元（ブラウザ再接続時）に対応します。
 
-- プロトコル: `GET /api/remote/terminal`（WebSocket）。制御は JSON テキストフレーム（`start` / `input`(base64) / `resize` / `exit`）、端末出力はバイナリフレーム。実装は `core/infrastructure/remoteterm`。
-- 認証: `Authorization: Bearer <トークン>`（定数時間比較）。トークンは待ち受け・接続の両側で同じ値を設定します。
-- セキュリティ: リモート受付はシェル実行そのものを公開する機能です。信頼できるネットワーク（VPN / LAN）内で使うか、TLS 終端（`https://` → `wss://` 自動変換に対応）を挟んでください。
+- プロトコル: `GET /api/remote/terminal`（WebSocket）。サーバーが nonce チャレンジ → クライアントが署名（`auth`）→ 制御は JSON テキストフレーム（`start` / `input`(base64) / `resize` / `exit`）、端末出力はバイナリフレーム。実装は `core/infrastructure/remoteterm`。
+- 鍵管理 API: `GET /api/remote/identity`（自分の公開鍵）、`GET/POST/DELETE /api/remote/authorized-keys`（許可リスト）。ファイル直接編集も可（`remote_authorized_keys`、1行1鍵 `ed25519:<base64> コメント`）。
+- セキュリティ: リモート受付はシェル実行そのものを公開する機能です。鍵認証によりなりすまし・盗聴による資格情報漏えいは防げますが、経路の暗号化はしないため、信頼できるネットワーク（VPN / LAN）内で使うか、TLS 終端（`https://` → `wss://` 自動変換に対応）を挟んでください。
 
 ## 環境変数
 
@@ -150,7 +144,14 @@ MULTI_TERMINALS_REMOTE_TOKEN=<共有シークレット> ./bin/multi-terminals
 | `PORT` | `8080` | バックエンドの待受ポート |
 | `MULTI_TERMINALS_DIR` | OS のユーザー設定ディレクトリ配下 `multi-terminals/` | ワークスペース JSON と `app-state.json` の保存先 |
 | `MULTI_TERMINALS_SHELL` | （Windows のみ）`powershell.exe` | Windows で使うデフォルトシェル（`cmd.exe` 等に上書き可） |
-| `MULTI_TERMINALS_REMOTE_TOKEN` | （未設定 = リモート無効） | リモート実行の共有シークレット。設定すると `/api/remote/terminal` で他インスタンスからの接続を受け付け、他ホストへ接続する際も同じ値を送る |
+
+リモート実行の鍵ファイル（`MULTI_TERMINALS_DIR` 配下、自動生成・管理）:
+
+| ファイル | 説明 |
+| --- | --- |
+| `remote_key` | この端末の Ed25519 秘密鍵（0600、初回起動時に自動生成） |
+| `remote_key.pub` | 対応する公開鍵（他の端末に登録する値） |
+| `remote_authorized_keys` | この端末での実行を許可する公開鍵リスト（空 = 待ち受け無効） |
 | `SHELL` | （Unix）`/bin/sh` | Unix のデフォルトシェル |
 | `VITE_API_TARGET` | `http://localhost:8080` | Vite プロキシのバックエンド宛先 |
 

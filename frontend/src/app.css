@@ -312,6 +312,56 @@ kbd {
   color: #e2b93d;
   border-color: #e2b93d66;
 }
+/* リモート設定モーダル */
+.remote-modal .remote-note {
+  font-size: 12px;
+  margin: 4px 0 8px;
+}
+.remote-modal .pubkey-row {
+  display: flex;
+  gap: 6px;
+}
+.remote-modal .pubkey {
+  flex: 1;
+  font-family: monospace;
+  font-size: 12px;
+}
+.remote-modal .auth-keys {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.remote-modal .auth-keys li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.remote-modal .auth-key-comment {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.remote-modal .auth-key-fp {
+  font-size: 11px;
+  color: var(--muted);
+}
+.remote-modal .add-key {
+  display: flex;
+  gap: 6px;
+}
+.remote-modal .add-key input {
+  flex: 2;
+  font-family: monospace;
+  font-size: 12px;
+}
+.remote-modal .add-key .key-comment {
+  flex: 1;
+  font-family: inherit;
+}
+
 .cell-head .remote-badge {
   flex-shrink: 1;
   min-width: 0;

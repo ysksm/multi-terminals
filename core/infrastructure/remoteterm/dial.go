@@ -22,13 +22,15 @@ var _ port.TerminalSession = (*wsSession)(nil)
 // dialing its remote-terminal WebSocket endpoint. The process runs on the
 // remote machine; output is streamed back over the connection.
 type Runner struct {
-	token  string
-	dialer *websocket.Dialer
+	identity *Identity
+	dialer   *websocket.Dialer
 }
 
-// NewRunner returns a Runner that authenticates with the given shared token.
-func NewRunner(token string) *Runner {
-	return &Runner{token: token, dialer: websocket.DefaultDialer}
+// NewRunner returns a Runner that authenticates with the given instance
+// identity: the remote host must have this identity's public key in its
+// authorized-keys list.
+func NewRunner(identity *Identity) *Runner {
+	return &Runner{identity: identity, dialer: websocket.DefaultDialer}
 }
 
 // endpointURL converts a user-supplied host value into the WebSocket URL of
@@ -52,20 +54,19 @@ func endpointURL(host string) (string, error) {
 	return h + EndpointPath, nil
 }
 
-// Start dials the remote instance, requests a terminal session and returns a
+// Start dials the remote instance, answers its authentication challenge with
+// this instance's key, requests a terminal session and returns a
 // port.TerminalSession bridged over the WebSocket connection.
 func (r *Runner) Start(ctx context.Context, req port.TerminalStartRequest) (port.TerminalSession, error) {
+	if r.identity == nil {
+		return nil, fmt.Errorf("remote terminal: no instance identity configured")
+	}
 	url, err := endpointURL(req.RemoteHost)
 	if err != nil {
 		return nil, fmt.Errorf("remote terminal: %w", err)
 	}
 
-	header := http.Header{}
-	if r.token != "" {
-		header.Set("Authorization", "Bearer "+r.token)
-	}
-
-	ws, resp, err := r.dialer.DialContext(ctx, url, header)
+	ws, resp, err := r.dialer.DialContext(ctx, url, http.Header{})
 	if err != nil {
 		if resp != nil {
 			return nil, fmt.Errorf("remote terminal: connect %s: %w (HTTP %d)", req.RemoteHost, err, resp.StatusCode)
@@ -80,8 +81,32 @@ func (r *Runner) Start(ctx context.Context, req port.TerminalStartRequest) (port
 		done: make(chan struct{}),
 	}
 
-	// Send the start request and wait for the server's ack so start errors
-	// (bad directory, unknown shell, …) surface here, not asynchronously.
+	// Answer the server's challenge by signing its nonce with our key.
+	var challenge controlMsg
+	if _, msgBytes, err := ws.ReadMessage(); err != nil {
+		ws.Close()
+		return nil, fmt.Errorf("remote terminal: read challenge: %w", err)
+	} else if err := json.Unmarshal(msgBytes, &challenge); err != nil || challenge.Type != msgChallenge {
+		ws.Close()
+		return nil, fmt.Errorf("remote terminal: expected challenge from %s", req.RemoteHost)
+	}
+	nonce, err := base64.StdEncoding.DecodeString(challenge.Nonce)
+	if err != nil {
+		ws.Close()
+		return nil, fmt.Errorf("remote terminal: invalid challenge nonce: %w", err)
+	}
+	if err := s.writeCtl(controlMsg{
+		Type:      msgAuth,
+		PublicKey: r.identity.PublicKeyString(),
+		Signature: base64.StdEncoding.EncodeToString(r.identity.sign(nonce)),
+	}); err != nil {
+		ws.Close()
+		return nil, fmt.Errorf("remote terminal: send auth: %w", err)
+	}
+
+	// Send the start request and wait for the server's ack so auth and start
+	// errors (unauthorized key, bad directory, …) surface here, not
+	// asynchronously.
 	if err := s.writeCtl(controlMsg{
 		Type:      msgStart,
 		SessionID: req.SessionID,
