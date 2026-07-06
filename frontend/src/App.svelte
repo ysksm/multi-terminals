@@ -32,11 +32,14 @@
   let editingTitlePaneId = $state(null)
   let titleDraft = $state('')
 
-  // ペイン内容（作業ディレクトリ・起動コマンド）編集
+  // ペイン内容（タイトル・リポジトリ・作業ディレクトリ・起動コマンド）編集
   let editingPaneId = $state(null)
+  let editTitle = $state('')
+  let editRepoUrl = $state('')
   let editDir = $state('')
   let editCmds = $state('')
   let editAutoRun = $state(true)
+  let editLastAutoDir = ''
 
   // サイドバー折りたたみ
   let sidebarCollapsed = $state(localStorage.getItem('mt.sidebarCollapsed') === '1')
@@ -310,29 +313,49 @@
     })
   }
 
-  // ペイン内容の編集（作業ディレクトリ・起動コマンド）。タイトルはセルヘッダの
-  // クリックで従来どおりインライン編集できる。
+  // ペイン内容の編集（タイトル・リポジトリ・作業ディレクトリ・起動コマンド）。
+  // タイトルはセルヘッダのクリックでもインライン編集できる。
   function startEditPane(pane) {
     editingPaneId = pane.id
+    editTitle = pane.title || ''
+    editRepoUrl = ''
     editDir = pane.directory || ''
     editCmds = (pane.commands || []).map((c) => c.command).join('\n')
     editAutoRun = pane.commands?.length ? pane.commands.every((c) => c.autoRun) : true
+    editLastAutoDir = ''
   }
   function cancelEditPane() {
     editingPaneId = null
+  }
+  // 追加フォームと同じく、URL 入力に応じて clone 先を自動補完する。既存の
+  // ディレクトリやユーザーが手で書き換えた値は上書きしない。
+  function onEditRepoUrlInput() {
+    const name = repoNameFromUrl(editRepoUrl)
+    if (!name) return
+    if (!editDir.trim() || editDir === editLastAutoDir) {
+      editDir = `~/src/github/${name}`
+      editLastAutoDir = editDir
+    }
   }
   function submitEditPane(paneId) {
     if (!editDir.trim()) {
       error = '作業ディレクトリを入力してください'
       return
     }
+    const repoUrl = editRepoUrl.trim()
     const commands = editCmds
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean)
       .map((command) => ({ command, autoRun: editAutoRun }))
     guard(async () => {
-      await api.setPaneDirectory(current.id, paneId, editDir.trim())
+      let dir = editDir.trim()
+      if (repoUrl) {
+        const res = await api.cloneRepo(repoUrl, dir)
+        dir = res.path
+      }
+      await api.setPaneTitle(current.id, paneId, editTitle.trim())
+      await api.setPaneDirectory(current.id, paneId, dir)
       await api.setPaneCommands(current.id, paneId, commands)
       editingPaneId = null
       await reloadCurrent()
@@ -535,8 +558,18 @@
                 {#if editingPaneId === cell.pane.id}
                   <div class="add-form">
                     <h3>ペインを編集</h3>
-                    <label>作業ディレクトリ
-                      <input placeholder="/path/to/project" bind:value={editDir} use:focusOnMount />
+                    <label>タイトル（任意）
+                      <input placeholder="例: API サーバー" bind:value={editTitle} use:focusOnMount />
+                    </label>
+                    <label>リポジトリ URL（任意・未 clone なら自動 clone）
+                      <input
+                        placeholder="https://github.com/user/repo.git"
+                        bind:value={editRepoUrl}
+                        oninput={onEditRepoUrlInput}
+                      />
+                    </label>
+                    <label>{editRepoUrl.trim() ? 'clone 先ディレクトリ' : '作業ディレクトリ'}
+                      <input placeholder="/path/to/project" bind:value={editDir} />
                     </label>
                     <label>起動コマンド（1行1コマンド）
                       <textarea rows="3" placeholder="npm run dev" bind:value={editCmds}></textarea>
