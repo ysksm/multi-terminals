@@ -163,9 +163,9 @@
     top: 100%;
     left: 0;
     z-index: 30;
-    min-width: 300px;
-    max-width: 520px;
-    padding: 6px;
+    min-width: 450px;
+    max-width: 780px;
+    padding: 9px;
     background: var(--panel-2);
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -175,9 +175,9 @@
   .filter {
     width: 100%;
     box-sizing: border-box;
-    margin-bottom: 6px;
-    padding: 4px 6px;
-    font-size: 12px;
+    margin-bottom: 9px;
+    padding: 6px 9px;
+    font-size: 18px;
     background: var(--panel);
     color: var(--text);
     border: 1px solid var(--border);
@@ -189,36 +189,36 @@
   }
   .ops {
     display: flex;
-    gap: 4px;
+    gap: 6px;
   }
   .ops button {
     flex: 1;
-    font-size: 12px;
-    padding: 4px 6px;
+    font-size: 18px;
+    padding: 6px 9px;
   }
   hr {
     border: none;
     border-top: 1px solid var(--border);
-    margin: 6px 0;
+    margin: 9px 0;
   }
   ul {
     list-style: none;
     margin: 0;
     padding: 0;
-    max-height: 220px;
+    max-height: 330px;
     overflow-y: auto;
   }
   .branch {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 9px;
     width: 100%;
     text-align: left;
     background: none;
     border: none;
-    padding: 4px 6px;
+    padding: 6px 9px;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: 18px;
     cursor: pointer;
     color: var(--text);
   }
@@ -242,19 +242,19 @@
   }
   .remote {
     flex: none;
-    font-size: 10px;
+    font-size: 15px;
     opacity: 0.6;
   }
   .muted {
-    font-size: 12px;
+    font-size: 18px;
     opacity: 0.6;
-    padding: 4px 6px;
+    padding: 6px 9px;
     color: var(--muted);
   }
   .error {
-    margin-top: 6px;
-    padding: 4px 6px;
-    font-size: 11px;
+    margin-top: 9px;
+    padding: 6px 9px;
+    font-size: 16px;
     color: #fca5a5;
     white-space: pre-wrap;
     word-break: break-all;
