@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 
 	"github.com/ysksm/multi-terminals/core/application/command"
 	"github.com/ysksm/multi-terminals/core/application/port"
@@ -11,6 +12,7 @@ import (
 	"github.com/ysksm/multi-terminals/core/application/session"
 	"github.com/ysksm/multi-terminals/core/infrastructure/gitcli"
 	"github.com/ysksm/multi-terminals/core/infrastructure/jsonstore"
+	"github.com/ysksm/multi-terminals/core/infrastructure/remoteterm"
 	"github.com/ysksm/multi-terminals/core/infrastructure/sysopen"
 	"github.com/ysksm/multi-terminals/core/infrastructure/terminal"
 )
@@ -41,10 +43,25 @@ func BuildDeps(baseDir string) (Deps, error) {
 	}
 
 	state := jsonstore.NewAppStateStore(baseDir)
-	runner := terminal.NewRunner()
 	reg := session.NewRegistry()
 	idgen := &uuidIDGen{}
 	git := gitcli.New()
+
+	// Remote execution key material: an auto-generated Ed25519 instance
+	// identity (used to authenticate to other instances) and the list of
+	// public keys allowed to run terminals on this machine. Remote listening
+	// stays disabled until at least one key is authorized.
+	identity, err := remoteterm.LoadOrCreateIdentity(baseDir)
+	if err != nil {
+		return Deps{}, fmt.Errorf("BuildDeps: remote identity: %w", err)
+	}
+	authKeys := remoteterm.NewAuthorizedKeys(filepath.Join(baseDir, remoteterm.AuthorizedKeysFile))
+
+	// Terminal runners: local PTY plus remote dial-out, dispatched per pane by
+	// RemoteHost. The remote-terminal endpoint always executes with the local
+	// runner — a serving instance is the execution target, never a relay.
+	localRunner := terminal.NewRunner()
+	runner := remoteterm.NewDispatchRunner(localRunner, remoteterm.NewRunner(identity))
 
 	return Deps{
 		Create:          command.NewCreateWorkspaceHandler(repo, idgen),
@@ -60,6 +77,7 @@ func BuildDeps(baseDir string) (Deps, error) {
 		RemovePane:      command.NewRemovePaneHandler(repo),
 		SetDir:          command.NewSetPaneDirectoryHandler(repo),
 		SetTitle:        command.NewSetPaneTitleHandler(repo),
+		SetRemoteHost:   command.NewSetPaneRemoteHostHandler(repo),
 		SetCmds:         command.NewSetPaneStartupCommandsHandler(repo),
 		OpenIn:          command.NewOpenPaneInHandler(repo, sysopen.New(), git),
 		CloneRepo:       command.NewCloneRepositoryHandler(git),
@@ -70,5 +88,8 @@ func BuildDeps(baseDir string) (Deps, error) {
 		ClosePane:       command.NewClosePaneHandler(reg),
 		DeleteWorkspace: command.NewDeleteWorkspaceHandler(repo, reg),
 		Registry:        reg,
+		RemoteTerminal:  remoteterm.Handler(localRunner, authKeys),
+		RemoteIdentity:  identity,
+		RemoteAuthKeys:  authKeys,
 	}, nil
 }

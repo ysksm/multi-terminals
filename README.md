@@ -13,7 +13,7 @@
 ```
 core/domain          … Entities, Value Objects, 集約, Repository/ポート（依存ゼロ・stdlib のみ）
 core/application     … CQRS Command/Query ハンドラ, ポート, DTO（stdlib のみ）
-core/infrastructure  … JSON 永続化(jsonstore) / ターミナル(go-pty: PTY・ConPTY)
+core/infrastructure  … JSON 永続化(jsonstore) / ターミナル(go-pty: PTY・ConPTY) / リモート実行(remoteterm: WebSocket)
 apps/web             … net/http REST + gorilla/websocket（薄いアダプタ）
 frontend             … Svelte + xterm.js（/api を web へプロキシ）
 ```
@@ -111,6 +111,32 @@ cd apps/wails && wails build
 Windows / macOS 両方の成果物は GitHub Actions（`.github/workflows/build.yml`）で
 ネイティブランナー上から取得できます。
 
+## リモート実行（他の端末で実行する）
+
+ペインごとに「リモートホスト」を設定すると、そのペインのターミナルは**別マシンで動いている multi-terminals 上で実行**され、出力は接続元に返ってストリーム表示されます。待ち受け側・接続側とも同じバイナリです。
+
+```
+[マシン A: 接続側]                     [マシン B: 待ち受け側]
+ブラウザ ── ws ──> backend A ── ws ──> backend B ──> PTY（B のローカルで実行）
+                     └─ /api/remote/terminal（Bearer トークン認証）─┘
+```
+
+### 認証（Ed25519 公開鍵・自動生成）
+
+各インスタンスは**初回起動時に Ed25519 鍵ペアを自動生成**します（`MULTI_TERMINALS_DIR` 配下の `remote_key` / `remote_key.pub`）。接続は SSH 風のチャレンジ・レスポンスで認証され、**待ち受け側の「許可された鍵」リストに載っている公開鍵だけ**が接続できます。リストが空の間は待ち受け自体が無効（403）なので、意図せずシェルが公開されることはありません。秘密情報がネットワークを流れることもありません。
+
+### セットアップ手順
+
+1. **接続側（マシン A）**: サイドバーの「🔑 リモート設定」を開き、「この端末の公開鍵」（`ed25519:…`）をコピー
+2. **待ち受け側（マシン B）**: 同じく「🔑 リモート設定」を開き、「許可された鍵」に A の公開鍵を追加（＝この時点で待ち受けが有効になる）
+3. **マシン A**: ペインの追加/編集フォームの「リモートホスト」に B のアドレス（例: `192.168.1.10:8080`、`https://host.example`）を入力。空欄なら従来どおりローカル実行
+
+ワークスペースを「開く」と、リモートホスト付きペインはマシン B 上でシェルを起動し、キー入力・リサイズは B へ、出力は A へ双方向に流れます。リモートペインもスクロールバック復元（ブラウザ再接続時）に対応します。
+
+- プロトコル: `GET /api/remote/terminal`（WebSocket）。サーバーが nonce チャレンジ → クライアントが署名（`auth`）→ 制御は JSON テキストフレーム（`start` / `input`(base64) / `resize` / `exit`）、端末出力はバイナリフレーム。実装は `core/infrastructure/remoteterm`。
+- 鍵管理 API: `GET /api/remote/identity`（自分の公開鍵）、`GET/POST/DELETE /api/remote/authorized-keys`（許可リスト）。ファイル直接編集も可（`remote_authorized_keys`、1行1鍵 `ed25519:<base64> コメント`）。
+- セキュリティ: リモート受付はシェル実行そのものを公開する機能です。鍵認証によりなりすまし・盗聴による資格情報漏えいは防げますが、経路の暗号化はしないため、信頼できるネットワーク（VPN / LAN）内で使うか、TLS 終端（`https://` → `wss://` 自動変換に対応）を挟んでください。
+
 ## 環境変数
 
 | 変数 | 既定 | 説明 |
@@ -118,6 +144,14 @@ Windows / macOS 両方の成果物は GitHub Actions（`.github/workflows/build.
 | `PORT` | `8080` | バックエンドの待受ポート |
 | `MULTI_TERMINALS_DIR` | OS のユーザー設定ディレクトリ配下 `multi-terminals/` | ワークスペース JSON と `app-state.json` の保存先 |
 | `MULTI_TERMINALS_SHELL` | （Windows のみ）`powershell.exe` | Windows で使うデフォルトシェル（`cmd.exe` 等に上書き可） |
+
+リモート実行の鍵ファイル（`MULTI_TERMINALS_DIR` 配下、自動生成・管理）:
+
+| ファイル | 説明 |
+| --- | --- |
+| `remote_key` | この端末の Ed25519 秘密鍵（0600、初回起動時に自動生成） |
+| `remote_key.pub` | 対応する公開鍵（他の端末に登録する値） |
+| `remote_authorized_keys` | この端末での実行を許可する公開鍵リスト（空 = 待ち受け無効） |
 | `SHELL` | （Unix）`/bin/sh` | Unix のデフォルトシェル |
 | `VITE_API_TARGET` | `http://localhost:8080` | Vite プロキシのバックエンド宛先 |
 

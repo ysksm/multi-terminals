@@ -130,6 +130,16 @@ func (w *Workspace) SetPaneTitle(id PaneId, title PaneTitle) error {
 	return nil
 }
 
+// SetPaneRemoteHost は指定 pane のリモート実行ホストを変更する。空はローカル実行。
+func (w *Workspace) SetPaneRemoteHost(id PaneId, host RemoteHost) error {
+	p := w.findPane(id)
+	if p == nil {
+		return fmt.Errorf("pane %s not found", id)
+	}
+	p.setRemoteHost(host)
+	return nil
+}
+
 // SetPaneStartupCommands は指定 pane の起動コマンド列を置き換える。
 func (w *Workspace) SetPaneStartupCommands(id PaneId, commands []StartupCommand) error {
 	p := w.findPane(id)

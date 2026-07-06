@@ -27,7 +27,7 @@ func buildRepoWorkspace(t *testing.T, idStr, nameStr string) *domain.Workspace {
 	paneID, _ := domain.NewPaneId("pane-repo-1")
 	dir, _ := domain.NewDirectoryPath("/tmp")
 	slot, _ := domain.NewSlotIndex(0)
-	pane, err := domain.NewPane(paneID, dir, slot, domain.PaneTitle{}, nil)
+	pane, err := domain.NewPane(paneID, dir, slot, domain.PaneTitle{}, domain.RemoteHost{}, nil)
 	if err != nil {
 		t.Fatalf("NewPane: %v", err)
 	}
@@ -364,7 +364,7 @@ func buildFullWorkspace(t *testing.T) *domain.Workspace {
 	dir0, _ := domain.NewDirectoryPath("/home/user")
 	slot0, _ := domain.NewSlotIndex(0)
 	cmd0, _ := domain.NewStartupCommand("echo hello", true)
-	pane0, err := domain.NewPane(pane0ID, dir0, slot0, domain.PaneTitle{}, []domain.StartupCommand{cmd0})
+	pane0, err := domain.NewPane(pane0ID, dir0, slot0, domain.PaneTitle{}, domain.RemoteHost{}, []domain.StartupCommand{cmd0})
 	if err != nil {
 		t.Fatalf("NewPane 0: %v", err)
 	}
@@ -375,7 +375,7 @@ func buildFullWorkspace(t *testing.T) *domain.Workspace {
 	slot1, _ := domain.NewSlotIndex(1)
 	cmd1a, _ := domain.NewStartupCommand("ls -la", false)
 	cmd1b, _ := domain.NewStartupCommand("pwd", true)
-	pane1, err := domain.NewPane(pane1ID, dir1, slot1, domain.PaneTitle{}, []domain.StartupCommand{cmd1a, cmd1b})
+	pane1, err := domain.NewPane(pane1ID, dir1, slot1, domain.PaneTitle{}, domain.RemoteHost{}, []domain.StartupCommand{cmd1a, cmd1b})
 	if err != nil {
 		t.Fatalf("NewPane 1: %v", err)
 	}
@@ -513,7 +513,7 @@ func TestPathTraversalRejected(t *testing.T) {
 	paneID, _ := domain.NewPaneId("pane-trav-1")
 	dir, _ := domain.NewDirectoryPath("/tmp")
 	slot, _ := domain.NewSlotIndex(0)
-	pane, _ := domain.NewPane(paneID, dir, slot, domain.PaneTitle{}, nil)
+	pane, _ := domain.NewPane(paneID, dir, slot, domain.PaneTitle{}, domain.RemoteHost{}, nil)
 	wsName, _ := domain.NewWorkspaceName("Traversal WS")
 	ws, _ := domain.ReconstituteWorkspace(maliciousID, wsName, domain.LayoutSingle, []*domain.Pane{pane}, nil, nil)
 	if err := repo.Save(ctx, ws); err == nil {

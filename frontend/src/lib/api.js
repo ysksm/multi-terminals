@@ -32,13 +32,15 @@ export const api = {
   setActivePane: (id, paneId) => req('POST', `/api/workspaces/${id}/active-pane`, { paneId }),
   lastOpened: () => req('GET', '/api/last-opened'),
   listSessions: () => req('GET', '/api/sessions'),
-  addPane: (id, directory, slot, commands, title) =>
-    req('POST', `/api/workspaces/${id}/panes`, { directory, slot, commands, title }),
+  addPane: (id, directory, slot, commands, title, remoteHost = '') =>
+    req('POST', `/api/workspaces/${id}/panes`, { directory, slot, commands, title, remoteHost }),
   removePane: (id, paneId) => req('DELETE', `/api/workspaces/${id}/panes/${paneId}`),
   setPaneDirectory: (id, paneId, directory) =>
     req('PUT', `/api/workspaces/${id}/panes/${paneId}/directory`, { directory }),
   setPaneTitle: (id, paneId, title) =>
     req('PUT', `/api/workspaces/${id}/panes/${paneId}/title`, { title }),
+  setPaneRemoteHost: (id, paneId, remoteHost) =>
+    req('PUT', `/api/workspaces/${id}/panes/${paneId}/remote-host`, { remoteHost }),
   setPaneCommands: (id, paneId, commands) =>
     req('PUT', `/api/workspaces/${id}/panes/${paneId}/commands`, { commands }),
   openPaneIn: (id, paneId, target) =>
@@ -47,6 +49,11 @@ export const api = {
   cloneRepo: (url, dest) => req('POST', '/api/repos/clone', { url, dest }),
   open: (id) => req('POST', `/api/workspaces/${id}/open`),
   deleteWorkspace: (id) => req('DELETE', `/api/workspaces/${id}`),
+  // リモート実行の鍵管理
+  remoteIdentity: () => req('GET', '/api/remote/identity'),
+  listAuthorizedKeys: () => req('GET', '/api/remote/authorized-keys'),
+  addAuthorizedKey: (key, comment) => req('POST', '/api/remote/authorized-keys', { key, comment }),
+  removeAuthorizedKey: (key) => req('DELETE', `/api/remote/authorized-keys?key=${encodeURIComponent(key)}`),
 }
 
 // レイアウトプリセットの定義（バックエンドの値と一致させる）。

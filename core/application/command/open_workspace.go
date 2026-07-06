@@ -95,13 +95,15 @@ func (h *OpenWorkspaceHandler) Handle(ctx context.Context, cmd OpenWorkspaceComm
 			continue
 		}
 
-		// Start a new terminal session for this pane.
+		// Start a new terminal session for this pane. A non-empty RemoteHost
+		// routes the session to that remote multi-terminals instance.
 		req := port.TerminalStartRequest{
-			SessionID: paneID,
-			Dir:       pane.Directory().String(),
-			Shell:     h.shell,
-			Cols:      h.cols,
-			Rows:      h.rows,
+			SessionID:  paneID,
+			Dir:        pane.Directory().String(),
+			Shell:      h.shell,
+			Cols:       h.cols,
+			Rows:       h.rows,
+			RemoteHost: pane.RemoteHost().String(),
 		}
 		inner, err := h.runner.Start(ctx, req)
 		if err != nil {

@@ -3,12 +3,16 @@ package port
 import "context"
 
 // TerminalStartRequest holds parameters to start a new terminal session.
+// RemoteHost, when non-empty, requests that the terminal run on that remote
+// multi-terminals instance instead of the local machine; runners that do not
+// support remote execution must return an error in that case.
 type TerminalStartRequest struct {
-	SessionID string
-	Dir       string
-	Shell     string
-	Cols      uint16
-	Rows      uint16
+	SessionID  string
+	Dir        string
+	Shell      string
+	Cols       uint16
+	Rows       uint16
+	RemoteHost string
 }
 
 // TerminalSession represents a live terminal process session.

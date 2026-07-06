@@ -16,11 +16,13 @@ type StartupCommandInput struct {
 }
 
 // AddPaneCommand は pane 追加コマンドの入力 DTO。
+// RemoteHost は空でローカル実行、非空でそのホスト上のリモート実行。
 type AddPaneCommand struct {
 	WorkspaceID string
 	Directory   string
 	Slot        int
 	Title       string
+	RemoteHost  string
 	Commands    []StartupCommandInput
 }
 
@@ -82,7 +84,12 @@ func (h *AddPaneHandler) Handle(ctx context.Context, cmd AddPaneCommand) (AddPan
 		return AddPaneResult{}, apperr.Validation(fmt.Errorf("add pane: invalid title: %w", err))
 	}
 
-	pane, err := domain.NewPane(paneID, dir, slot, title, startupCmds)
+	remoteHost, err := domain.NewRemoteHost(cmd.RemoteHost)
+	if err != nil {
+		return AddPaneResult{}, apperr.Validation(fmt.Errorf("add pane: invalid remote host: %w", err))
+	}
+
+	pane, err := domain.NewPane(paneID, dir, slot, title, remoteHost, startupCmds)
 	if err != nil {
 		return AddPaneResult{}, apperr.Validation(fmt.Errorf("add pane: create pane: %w", err))
 	}

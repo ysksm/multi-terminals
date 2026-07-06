@@ -12,6 +12,7 @@ import (
 	"github.com/ysksm/multi-terminals/core/application/query"
 	"github.com/ysksm/multi-terminals/core/application/session"
 	"github.com/ysksm/multi-terminals/core/domain"
+	"github.com/ysksm/multi-terminals/core/infrastructure/remoteterm"
 )
 
 // Deps holds all CQRS handler dependencies for the HTTP server.
@@ -29,6 +30,7 @@ type Deps struct {
 	RemovePane      *command.RemovePaneHandler
 	SetDir          *command.SetPaneDirectoryHandler
 	SetTitle        *command.SetPaneTitleHandler
+	SetRemoteHost   *command.SetPaneRemoteHostHandler
 	SetCmds         *command.SetPaneStartupCommandsHandler
 	OpenIn          *command.OpenPaneInHandler
 	CloneRepo       *command.CloneRepositoryHandler
@@ -39,6 +41,14 @@ type Deps struct {
 	ClosePane       *command.ClosePaneHandler
 	DeleteWorkspace *command.DeleteWorkspaceHandler
 	Registry        *session.Registry
+	// RemoteTerminal serves the remote-execution WebSocket endpoint
+	// (remoteterm.Handler). Nil disables the endpoint entirely.
+	RemoteTerminal http.HandlerFunc
+	// RemoteIdentity is this instance's auto-generated keypair; RemoteAuthKeys
+	// is the list of client public keys allowed to run terminals here. Nil
+	// disables the corresponding key-management endpoints.
+	RemoteIdentity *remoteterm.Identity
+	RemoteAuthKeys *remoteterm.AuthorizedKeys
 }
 
 // NewMux registers all routes and returns the HTTP mux.
@@ -66,6 +76,7 @@ func NewMux(d Deps) *http.ServeMux {
 	mux.HandleFunc("DELETE /api/workspaces/{id}/panes/{paneId}", d.handleRemovePane)
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/directory", d.handleSetPaneDirectory)
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/title", d.handleSetPaneTitle)
+	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/remote-host", d.handleSetPaneRemoteHost)
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/commands", d.handleSetPaneCommands)
 	mux.HandleFunc("POST /api/workspaces/{id}/panes/{paneId}/open-in", d.handleOpenPaneIn)
 	mux.HandleFunc("GET /api/workspaces/{id}/panes/{paneId}/git", d.handleGetPaneGit)
@@ -81,6 +92,23 @@ func NewMux(d Deps) *http.ServeMux {
 
 	// WebSocket pane I/O
 	mux.HandleFunc("GET /api/panes/{paneId}/io", d.handlePaneIO)
+
+	// Remote terminal execution (WebSocket, key-authenticated). Other
+	// multi-terminals instances connect here to run terminals on this machine.
+	if d.RemoteTerminal != nil {
+		mux.Handle("GET /api/remote/terminal", d.RemoteTerminal)
+	}
+
+	// Remote key management: this instance's public key, and the list of
+	// client keys allowed to run terminals here.
+	if d.RemoteIdentity != nil {
+		mux.HandleFunc("GET /api/remote/identity", d.handleRemoteIdentity)
+	}
+	if d.RemoteAuthKeys != nil {
+		mux.HandleFunc("GET /api/remote/authorized-keys", d.handleListAuthorizedKeys)
+		mux.HandleFunc("POST /api/remote/authorized-keys", d.handleAddAuthorizedKey)
+		mux.HandleFunc("DELETE /api/remote/authorized-keys", d.handleRemoveAuthorizedKey)
+	}
 
 	return mux
 }
@@ -261,10 +289,11 @@ func (d Deps) handleGetLastOpened(w http.ResponseWriter, r *http.Request) {
 func (d Deps) handleAddPane(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
-		Directory string `json:"directory"`
-		Slot      int    `json:"slot"`
-		Title     string `json:"title"`
-		Commands  []struct {
+		Directory  string `json:"directory"`
+		Slot       int    `json:"slot"`
+		Title      string `json:"title"`
+		RemoteHost string `json:"remoteHost"`
+		Commands   []struct {
 			Command string `json:"command"`
 			AutoRun bool   `json:"autoRun"`
 		} `json:"commands"`
@@ -282,6 +311,7 @@ func (d Deps) handleAddPane(w http.ResponseWriter, r *http.Request) {
 		Directory:   body.Directory,
 		Slot:        body.Slot,
 		Title:       body.Title,
+		RemoteHost:  body.RemoteHost,
 		Commands:    cmds,
 	})
 	if err != nil {
@@ -339,6 +369,27 @@ func (d Deps) handleSetPaneTitle(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: id,
 		PaneID:      paneID,
 		Title:       body.Title,
+	}); err != nil {
+		mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (d Deps) handleSetPaneRemoteHost(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	paneID := r.PathValue("paneId")
+	var body struct {
+		RemoteHost string `json:"remoteHost"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := d.SetRemoteHost.Handle(r.Context(), command.SetPaneRemoteHostCommand{
+		WorkspaceID: id,
+		PaneID:      paneID,
+		RemoteHost:  body.RemoteHost,
 	}); err != nil {
 		mapErr(w, err)
 		return
@@ -458,6 +509,62 @@ func (d Deps) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 		ids = []string{}
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"paneIds": ids})
+}
+
+// ---- Remote key management handlers ----
+
+// handleRemoteIdentity returns this instance's public key for pasting into
+// another instance's authorized-keys list. The private key never leaves the
+// server.
+func (d Deps) handleRemoteIdentity(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{
+		"publicKey":   d.RemoteIdentity.PublicKeyString(),
+		"fingerprint": d.RemoteIdentity.Fingerprint(),
+	})
+}
+
+// handleListAuthorizedKeys returns all authorized client keys. The response
+// is always {"keys":[...], "enabled":bool}, never null.
+func (d Deps) handleListAuthorizedKeys(w http.ResponseWriter, _ *http.Request) {
+	keys := d.RemoteAuthKeys.List()
+	if keys == nil {
+		keys = []remoteterm.AuthorizedKey{}
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"keys":    keys,
+		"enabled": len(keys) > 0,
+	})
+}
+
+func (d Deps) handleAddAuthorizedKey(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Key     string `json:"key"`
+		Comment string `json:"comment"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := d.RemoteAuthKeys.Add(body.Key, body.Comment); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+// handleRemoveAuthorizedKey deletes the key given in the "key" query
+// parameter (the key contains base64 characters, so it travels URL-encoded).
+func (d Deps) handleRemoveAuthorizedKey(w http.ResponseWriter, r *http.Request) {
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "key query parameter required"})
+		return
+	}
+	if err := d.RemoteAuthKeys.Remove(key); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (d Deps) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {

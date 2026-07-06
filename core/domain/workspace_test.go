@@ -81,7 +81,7 @@ func TestWorkspaceChangeLayout(t *testing.T) {
 
 func newPaneAt(t *testing.T, id string, slot int) *Pane {
 	t.Helper()
-	p, err := NewPane(mustPaneId(t, id), mustDir(t, "/tmp"), mustSlot(t, slot), PaneTitle{}, nil)
+	p, err := NewPane(mustPaneId(t, id), mustDir(t, "/tmp"), mustSlot(t, slot), PaneTitle{}, RemoteHost{}, nil)
 	if err != nil {
 		t.Fatalf("NewPane: %v", err)
 	}
