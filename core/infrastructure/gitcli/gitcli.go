@@ -3,11 +3,13 @@ package gitcli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ysksm/multi-terminals/core/application/port"
 )
@@ -162,3 +164,33 @@ func (s *Service) Checkout(dir, branch string) error {
 	}
 	return nil
 }
+
+// netTimeout はネットワークを伴う git 操作の上限時間。
+const netTimeout = 60 * time.Second
+
+// gitNet は認証プロンプト無効(GIT_TERMINAL_PROMPT=0)・タイムアウト付きで
+// git を実行する。pull/push/fetch などリモートと通信する操作に使う。
+func gitNet(dir string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), netTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("git %s: %v でタイムアウトしました", args[0], netTimeout)
+		}
+		return fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(errBuf.String()))
+	}
+	return nil
+}
+
+// Pull は現在ブランチを pull する。
+func (s *Service) Pull(dir string) error { return gitNet(dir, "pull") }
+
+// Push は現在ブランチを push する。
+func (s *Service) Push(dir string) error { return gitNet(dir, "push") }
+
+// Fetch は全リモートを fetch --prune する。
+func (s *Service) Fetch(dir string) error { return gitNet(dir, "fetch", "--prune") }

@@ -319,3 +319,81 @@ func TestCheckout_UnknownBranchFails(t *testing.T) {
 		t.Fatal("expected error for unknown branch, got nil")
 	}
 }
+
+func TestPush(t *testing.T) {
+	bare, clone := initClonePair(t)
+	if err := os.WriteFile(filepath.Join(clone, "new.txt"), []byte("n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, clone, "add", ".")
+	runGit(t, clone, "commit", "-m", "new")
+
+	s := New()
+	if err := s.Push(clone); err != nil {
+		t.Fatalf("Push: %v", err)
+	}
+	// bare 側の main が clone の HEAD と一致する
+	cmdOut := func(dir string, args ...string) string {
+		out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if cmdOut(bare, "rev-parse", "main") != cmdOut(clone, "rev-parse", "HEAD") {
+		t.Error("push 後も bare の main が更新されていない")
+	}
+}
+
+func TestPullAndFetch(t *testing.T) {
+	bare, cloneA := initClonePair(t)
+	cloneB := filepath.Join(t.TempDir(), "cloneB")
+	if out, err := exec.Command("git", "clone", bare, cloneB).CombinedOutput(); err != nil {
+		t.Fatalf("clone B: %v\n%s", err, out)
+	}
+
+	// A 側でコミットして push、新ブランチも push
+	if err := os.WriteFile(filepath.Join(cloneA, "from-a.txt"), []byte("a"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, cloneA, "add", ".")
+	runGit(t, cloneA, "commit", "-m", "from A")
+	runGit(t, cloneA, "push", "origin", "main")
+	runGit(t, cloneA, "push", "origin", "main:new-branch")
+
+	s := New()
+	// Fetch で新リモートブランチが見える
+	if err := s.Fetch(cloneB); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	branches, err := s.Branches(cloneB)
+	if err != nil {
+		t.Fatalf("Branches: %v", err)
+	}
+	found := false
+	for _, b := range branches {
+		if b.Name == "new-branch" && b.IsRemote {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("fetch 後に new-branch が見えない: %+v", branches)
+	}
+
+	// Pull で from-a.txt が取り込まれる
+	if err := s.Pull(cloneB); err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cloneB, "from-a.txt")); err != nil {
+		t.Errorf("pull 後に from-a.txt が無い: %v", err)
+	}
+}
+
+func TestFetch_BadRemoteFails(t *testing.T) {
+	dir := initRepo(t)
+	runGit(t, dir, "remote", "add", "origin", filepath.Join(t.TempDir(), "no-such-repo"))
+	s := New()
+	if err := s.Fetch(dir); err == nil {
+		t.Fatal("expected error for missing remote repo, got nil")
+	}
+}

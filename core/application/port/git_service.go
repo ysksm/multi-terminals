@@ -34,4 +34,13 @@ type GitService interface {
 	// Checkout は branch に切り替える(git switch 相当。リモートのみの
 	// ブランチは追跡ブランチを自動作成して切り替える)。
 	Checkout(dir, branch string) error
+
+	// Pull は現在ブランチを pull する。認証が必要な場合は即エラー。
+	Pull(dir string) error
+
+	// Push は現在ブランチを push する。upstream 未設定は git のエラーを返す。
+	Push(dir string) error
+
+	// Fetch は全リモートを fetch --prune する。
+	Fetch(dir string) error
 }
