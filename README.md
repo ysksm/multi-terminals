@@ -142,7 +142,7 @@ Windows / macOS 両方の成果物は GitHub Actions（`.github/workflows/build.
 
 - プロトコル: `GET /api/remote/terminal`（WebSocket）。サーバーが nonce チャレンジ → クライアントが署名（`auth`）→ 制御は JSON テキストフレーム（`start` / `input`(base64) / `resize` / `exit`）、端末出力はバイナリフレーム。実装は `core/infrastructure/remoteterm`。
 - 鍵管理 API: `GET /api/remote/identity`（自分の公開鍵）、`GET/POST/DELETE /api/remote/authorized-keys`（許可リスト）。ファイル直接編集も可（`remote_authorized_keys`、1行1鍵 `ed25519:<base64> コメント`）。
-- **プロトコル（暗号化）の選択**: 平文 `ws://` か TLS `wss://` かは**入力スキームで決まります**。`host:port` / `http://` は `ws://`（平文）、`https://` は `wss://`（TLS）へ自動変換されます。経路自体の暗号化はしないため、平文で使う場合は信頼できるネットワーク（VPN / LAN）内に限るか、TLS 終端（`https://`）を挟んでください。
+- **プロトコル（暗号化）の選択**: 平文 `ws://` か TLS `wss://` かは**入力スキームで決まります**。`host:port` / `http://` は `ws://`（平文）、`https://` は `wss://`（TLS）へ自動変換されます。`ws://`（平文）の場合のみ経路が暗号化されないため、平文で使うときは信頼できるネットワーク（VPN / LAN）内に限るか、`https://`（→ `wss://`）で TLS 終端を挟んでください。`wss://` を使えば経路も暗号化されます。
 
 ### 方式 2: 既存の SSH サーバへ接続（`ssh://`）
 

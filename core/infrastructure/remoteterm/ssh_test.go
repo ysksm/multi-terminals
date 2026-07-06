@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os/user"
 	"sync"
 	"testing"
 	"time"
@@ -34,10 +33,10 @@ func TestIsSSHHost(t *testing.T) {
 }
 
 func TestParseSSHTarget(t *testing.T) {
-	me := ""
-	if u, err := user.Current(); err == nil {
-		me = u.Username
-	}
+	// Expected default login must come from the same helper the implementation
+	// uses (currentUsername strips Windows domain prefixes and falls back to
+	// env), so the default-user cases stay correct across platforms.
+	me, _ := currentUsername()
 
 	cases := []struct {
 		in       string
@@ -50,8 +49,10 @@ func TestParseSSHTarget(t *testing.T) {
 		{in: "ssh://host:2222", wantUser: me, wantAddr: "host:2222"},
 		{in: "ssh://host", wantUser: me, wantAddr: "host:22"},
 		{in: "  ssh://bob@10.0.0.5:22  ", wantUser: "bob", wantAddr: "10.0.0.5:22"},
-		{in: "host:8080", wantErr: true}, // not an ssh:// url
-		{in: "ssh://", wantErr: true},    // no host
+		{in: "host:8080", wantErr: true},            // not an ssh:// url
+		{in: "ssh://", wantErr: true},               // no host
+		{in: "ssh://host/some/path", wantErr: true}, // path not allowed
+		{in: "ssh://host:22?x=1", wantErr: true},    // query not allowed
 	}
 	for _, c := range cases {
 		gotUser, gotAddr, err := parseSSHTarget(c.in)
@@ -76,7 +77,7 @@ func TestParseSSHTarget(t *testing.T) {
 
 func TestSSHRunner_NoCredentials(t *testing.T) {
 	r := &SSHRunner{
-		authMethods:     func(string) []ssh.AuthMethod { return nil },
+		authMethods:     func(string) ([]ssh.AuthMethod, func()) { return nil, func() {} },
 		hostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		timeout:         time.Second,
 	}
@@ -92,7 +93,9 @@ func TestSSHRunner_EndToEnd(t *testing.T) {
 	srv := newTestSSHServer(t)
 
 	r := &SSHRunner{
-		authMethods:     func(string) []ssh.AuthMethod { return []ssh.AuthMethod{ssh.PublicKeys(srv.clientKey)} },
+		authMethods: func(string) ([]ssh.AuthMethod, func()) {
+			return []ssh.AuthMethod{ssh.PublicKeys(srv.clientKey)}, func() {}
+		},
 		hostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		timeout:         5 * time.Second,
 	}

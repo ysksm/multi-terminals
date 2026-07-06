@@ -56,10 +56,11 @@ func IsSSHHost(remoteHost string) bool {
 // key management is added to multi-terminals itself. Host keys are verified
 // against ~/.ssh/known_hosts unless MULTI_TERMINALS_SSH_INSECURE is set.
 type SSHRunner struct {
-	// authMethods returns the SSH auth methods to try for the given login user.
-	// nil selects the production default (agent + ~/.ssh identity files).
-	// Overridable in tests.
-	authMethods func(user string) []ssh.AuthMethod
+	// authMethods returns the SSH auth methods to try for the given login user,
+	// plus a cleanup function to release any resources they hold (e.g. the
+	// ssh-agent socket) once the handshake is done. nil selects the production
+	// default (agent + ~/.ssh identity files). Overridable in tests.
+	authMethods func(user string) ([]ssh.AuthMethod, func())
 	// hostKeyCallback verifies the server host key. nil selects the production
 	// default (known_hosts, or insecure when MULTI_TERMINALS_SSH_INSECURE is
 	// set). Overridable in tests.
@@ -89,9 +90,13 @@ func (r *SSHRunner) Start(ctx context.Context, req port.TerminalStartRequest) (p
 	if authFn == nil {
 		authFn = defaultSSHAuthMethods
 	}
-	methods := authFn(login)
+	methods, cleanup := authFn(login)
+	// The auth methods may hold an open ssh-agent socket; it is only needed
+	// through the handshake (which completes before Start returns), so release
+	// it on return to avoid leaking a file descriptor per session.
+	defer cleanup()
 	if len(methods) == 0 {
-		return nil, fmt.Errorf("remote terminal (ssh): no SSH credentials available: start an ssh-agent (ssh-add) or create a key under ~/.ssh (id_ed25519)")
+		return nil, fmt.Errorf("remote terminal (ssh): no SSH credentials available: load a key into ssh-agent (ssh-add), or create a default key under ~/.ssh (id_ed25519 / id_ecdsa / id_rsa)")
 	}
 
 	hostKeyCB := r.hostKeyCallback
@@ -222,6 +227,12 @@ func parseSSHTarget(remoteHost string) (login, addr string, err error) {
 	if host == "" {
 		return "", "", fmt.Errorf("ssh remote host %q has no host name", remoteHost)
 	}
+	// Only "ssh://[user@]host[:port]" is meaningful here; a path, query or
+	// fragment means the input is malformed. Reject it rather than silently
+	// connecting to just the host and dropping the extra components.
+	if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return "", "", fmt.Errorf("ssh remote host %q must be of the form ssh://[user@]host[:port] (no path/query/fragment)", remoteHost)
+	}
 	port := u.Port()
 	if port == "" {
 		port = sshDefaultPort
@@ -259,30 +270,43 @@ func currentUsername() (string, error) {
 // defaultSSHAuthMethods assembles auth methods from the local user's existing
 // SSH setup: the running ssh-agent first, then the default identity files under
 // ~/.ssh. Encrypted key files without a passphrase in the agent are skipped.
-func defaultSSHAuthMethods(_ string) []ssh.AuthMethod {
+// The returned cleanup function closes any resources the methods hold (the
+// ssh-agent socket) and must be called once the handshake has completed.
+func defaultSSHAuthMethods(_ string) ([]ssh.AuthMethod, func()) {
 	var methods []ssh.AuthMethod
-	if m := agentAuthMethod(); m != nil {
+	var closers []func() error
+	if m, closer := agentAuthMethod(); m != nil {
 		methods = append(methods, m)
+		if closer != nil {
+			closers = append(closers, closer)
+		}
 	}
 	if signers := defaultIdentitySigners(); len(signers) > 0 {
 		methods = append(methods, ssh.PublicKeys(signers...))
 	}
-	return methods
+	cleanup := func() {
+		for _, c := range closers {
+			_ = c()
+		}
+	}
+	return methods, cleanup
 }
 
 // agentAuthMethod returns an auth method backed by the SSH agent if one is
-// reachable via $SSH_AUTH_SOCK, else nil.
-func agentAuthMethod() ssh.AuthMethod {
+// reachable via $SSH_AUTH_SOCK, plus a closer for the agent socket. Both are
+// nil when no agent is available. The caller must invoke the closer once the
+// SSH handshake has completed so the socket is not leaked.
+func agentAuthMethod() (ssh.AuthMethod, func() error) {
 	sock := os.Getenv("SSH_AUTH_SOCK")
 	if sock == "" {
-		return nil
+		return nil, nil
 	}
 	conn, err := net.Dial("unix", sock)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	ag := agent.NewClient(conn)
-	return ssh.PublicKeysCallback(ag.Signers)
+	return ssh.PublicKeysCallback(ag.Signers), conn.Close
 }
 
 // defaultIdentitySigners loads unencrypted default identity files from ~/.ssh.
