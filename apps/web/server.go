@@ -29,6 +29,7 @@ type Deps struct {
 	RemovePane      *command.RemovePaneHandler
 	SetDir          *command.SetPaneDirectoryHandler
 	SetTitle        *command.SetPaneTitleHandler
+	SetRemoteHost   *command.SetPaneRemoteHostHandler
 	SetCmds         *command.SetPaneStartupCommandsHandler
 	OpenIn          *command.OpenPaneInHandler
 	CloneRepo       *command.CloneRepositoryHandler
@@ -39,6 +40,9 @@ type Deps struct {
 	ClosePane       *command.ClosePaneHandler
 	DeleteWorkspace *command.DeleteWorkspaceHandler
 	Registry        *session.Registry
+	// RemoteTerminal serves the remote-execution WebSocket endpoint
+	// (remoteterm.Handler). Nil disables the endpoint entirely.
+	RemoteTerminal http.HandlerFunc
 }
 
 // NewMux registers all routes and returns the HTTP mux.
@@ -66,6 +70,7 @@ func NewMux(d Deps) *http.ServeMux {
 	mux.HandleFunc("DELETE /api/workspaces/{id}/panes/{paneId}", d.handleRemovePane)
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/directory", d.handleSetPaneDirectory)
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/title", d.handleSetPaneTitle)
+	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/remote-host", d.handleSetPaneRemoteHost)
 	mux.HandleFunc("PUT /api/workspaces/{id}/panes/{paneId}/commands", d.handleSetPaneCommands)
 	mux.HandleFunc("POST /api/workspaces/{id}/panes/{paneId}/open-in", d.handleOpenPaneIn)
 	mux.HandleFunc("GET /api/workspaces/{id}/panes/{paneId}/git", d.handleGetPaneGit)
@@ -81,6 +86,12 @@ func NewMux(d Deps) *http.ServeMux {
 
 	// WebSocket pane I/O
 	mux.HandleFunc("GET /api/panes/{paneId}/io", d.handlePaneIO)
+
+	// Remote terminal execution (WebSocket, token-authenticated). Other
+	// multi-terminals instances connect here to run terminals on this machine.
+	if d.RemoteTerminal != nil {
+		mux.Handle("GET /api/remote/terminal", d.RemoteTerminal)
+	}
 
 	return mux
 }
@@ -261,10 +272,11 @@ func (d Deps) handleGetLastOpened(w http.ResponseWriter, r *http.Request) {
 func (d Deps) handleAddPane(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	var body struct {
-		Directory string `json:"directory"`
-		Slot      int    `json:"slot"`
-		Title     string `json:"title"`
-		Commands  []struct {
+		Directory  string `json:"directory"`
+		Slot       int    `json:"slot"`
+		Title      string `json:"title"`
+		RemoteHost string `json:"remoteHost"`
+		Commands   []struct {
 			Command string `json:"command"`
 			AutoRun bool   `json:"autoRun"`
 		} `json:"commands"`
@@ -282,6 +294,7 @@ func (d Deps) handleAddPane(w http.ResponseWriter, r *http.Request) {
 		Directory:   body.Directory,
 		Slot:        body.Slot,
 		Title:       body.Title,
+		RemoteHost:  body.RemoteHost,
 		Commands:    cmds,
 	})
 	if err != nil {
@@ -339,6 +352,27 @@ func (d Deps) handleSetPaneTitle(w http.ResponseWriter, r *http.Request) {
 		WorkspaceID: id,
 		PaneID:      paneID,
 		Title:       body.Title,
+	}); err != nil {
+		mapErr(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (d Deps) handleSetPaneRemoteHost(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	paneID := r.PathValue("paneId")
+	var body struct {
+		RemoteHost string `json:"remoteHost"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := d.SetRemoteHost.Handle(r.Context(), command.SetPaneRemoteHostCommand{
+		WorkspaceID: id,
+		PaneID:      paneID,
+		RemoteHost:  body.RemoteHost,
 	}); err != nil {
 		mapErr(w, err)
 		return

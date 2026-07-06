@@ -6,24 +6,27 @@ import "errors"
 // 状態変更メソッド（setDirectory / setCommands / setTitle）は意図的に非公開であり、
 // Workspace 集約の境界はこれに依存する。公開ミューテータを追加してはならない。
 type Pane struct {
-	id        PaneId
-	directory DirectoryPath
-	slot      SlotIndex
-	title     PaneTitle
-	commands  []StartupCommand
+	id         PaneId
+	directory  DirectoryPath
+	slot       SlotIndex
+	title      PaneTitle
+	remoteHost RemoteHost
+	commands   []StartupCommand
 }
 
 // NewPane は Pane を生成する。commands は防御的にコピーされる。
-func NewPane(id PaneId, directory DirectoryPath, slot SlotIndex, title PaneTitle, commands []StartupCommand) (*Pane, error) {
+// remoteHost が空（IsZero）のときはローカルで実行される。
+func NewPane(id PaneId, directory DirectoryPath, slot SlotIndex, title PaneTitle, remoteHost RemoteHost, commands []StartupCommand) (*Pane, error) {
 	if id.IsZero() {
 		return nil, errors.New("pane id must not be empty")
 	}
 	return &Pane{
-		id:        id,
-		directory: directory,
-		slot:      slot,
-		title:     title,
-		commands:  append([]StartupCommand(nil), commands...),
+		id:         id,
+		directory:  directory,
+		slot:       slot,
+		title:      title,
+		remoteHost: remoteHost,
+		commands:   append([]StartupCommand(nil), commands...),
 	}, nil
 }
 
@@ -31,6 +34,7 @@ func (p *Pane) ID() PaneId               { return p.id }
 func (p *Pane) Directory() DirectoryPath { return p.directory }
 func (p *Pane) Slot() SlotIndex          { return p.slot }
 func (p *Pane) Title() PaneTitle         { return p.title }
+func (p *Pane) RemoteHost() RemoteHost   { return p.remoteHost }
 
 // Commands は内部スライスの防御的コピーを返す。
 func (p *Pane) Commands() []StartupCommand {
@@ -44,3 +48,5 @@ func (p *Pane) setCommands(c []StartupCommand) {
 }
 
 func (p *Pane) setTitle(t PaneTitle) { p.title = t }
+
+func (p *Pane) setRemoteHost(h RemoteHost) { p.remoteHost = h }

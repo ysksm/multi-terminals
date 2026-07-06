@@ -12,13 +12,14 @@ type StartupCommandDTO struct {
 	AutoRun bool   `json:"autoRun"`
 }
 
-// PaneDTO は Pane の読み取り DTO。
+// PaneDTO は Pane の読み取り DTO。RemoteHost は空でローカル実行。
 type PaneDTO struct {
-	ID        string              `json:"id"`
-	Directory string              `json:"directory"`
-	Slot      int                 `json:"slot"`
-	Title     string              `json:"title"`
-	Commands  []StartupCommandDTO `json:"commands"`
+	ID         string              `json:"id"`
+	Directory  string              `json:"directory"`
+	Slot       int                 `json:"slot"`
+	Title      string              `json:"title"`
+	RemoteHost string              `json:"remoteHost"`
+	Commands   []StartupCommandDTO `json:"commands"`
 }
 
 // WorkspaceDTO は Workspace の読み取り DTO。
@@ -52,11 +53,12 @@ func toWorkspaceDTO(w *domain.Workspace) WorkspaceDTO {
 			}
 		}
 		panes[i] = PaneDTO{
-			ID:        p.ID().String(),
-			Directory: p.Directory().String(),
-			Slot:      p.Slot().Int(),
-			Title:     p.Title().String(),
-			Commands:  dtoCommands,
+			ID:         p.ID().String(),
+			Directory:  p.Directory().String(),
+			Slot:       p.Slot().Int(),
+			Title:      p.Title().String(),
+			RemoteHost: p.RemoteHost().String(),
+			Commands:   dtoCommands,
 		}
 	}
 

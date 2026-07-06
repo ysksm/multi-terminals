@@ -23,6 +23,7 @@
   let paneAutoRun = $state(true)
   let paneTitle = $state('')
   let paneRepoUrl = $state('')
+  let paneRemoteHost = $state('')
   let lastAutoDir = ''
 
   // ペイン毎の git 情報（paneId -> {isRepo, branch, dirty}）
@@ -37,6 +38,7 @@
   let editDir = $state('')
   let editCmds = $state('')
   let editAutoRun = $state(true)
+  let editRemoteHost = $state('')
 
   // サイドバー折りたたみ
   let sidebarCollapsed = $state(localStorage.getItem('mt.sidebarCollapsed') === '1')
@@ -150,6 +152,7 @@
     paneAutoRun = true
     paneTitle = ''
     paneRepoUrl = ''
+    paneRemoteHost = ''
     lastAutoDir = ''
   }
 
@@ -190,7 +193,7 @@
         const res = await api.cloneRepo(repoUrl, dir)
         dir = res.path
       }
-      await api.addPane(current.id, dir, addingSlot, commands, paneTitle.trim())
+      await api.addPane(current.id, dir, addingSlot, commands, paneTitle.trim(), paneRemoteHost.trim())
       addingSlot = null
       await reloadCurrent()
     })
@@ -317,6 +320,7 @@
     editDir = pane.directory || ''
     editCmds = (pane.commands || []).map((c) => c.command).join('\n')
     editAutoRun = pane.commands?.length ? pane.commands.every((c) => c.autoRun) : true
+    editRemoteHost = pane.remoteHost || ''
   }
   function cancelEditPane() {
     editingPaneId = null
@@ -334,6 +338,7 @@
     guard(async () => {
       await api.setPaneDirectory(current.id, paneId, editDir.trim())
       await api.setPaneCommands(current.id, paneId, commands)
+      await api.setPaneRemoteHost(current.id, paneId, editRemoteHost.trim())
       editingPaneId = null
       await reloadCurrent()
     })
@@ -513,6 +518,9 @@
                     onkeydown={(e) => { if (e.key === 'Enter') startEditTitle(cell.pane) }}
                   >{cell.pane.title || cell.pane.directory}</span>
                 {/if}
+                {#if cell.pane.remoteHost}
+                  <span class="remote-badge" title="リモート実行: {cell.pane.remoteHost}">🖥 {cell.pane.remoteHost}</span>
+                {/if}
                 {#if paneGit[cell.pane.id]?.isRepo}
                   <span
                     class="git-badge"
@@ -537,6 +545,9 @@
                     <h3>ペインを編集</h3>
                     <label>作業ディレクトリ
                       <input placeholder="/path/to/project" bind:value={editDir} use:focusOnMount />
+                    </label>
+                    <label>リモートホスト（任意・空でローカル実行）
+                      <input placeholder="例: 192.168.1.10:8080" bind:value={editRemoteHost} />
                     </label>
                     <label>起動コマンド（1行1コマンド）
                       <textarea rows="3" placeholder="npm run dev" bind:value={editCmds}></textarea>
@@ -597,6 +608,9 @@
                 </label>
                 <label>{paneRepoUrl.trim() ? 'clone 先ディレクトリ' : '作業ディレクトリ'}
                   <input placeholder="/path/to/project" bind:value={paneDir} />
+                </label>
+                <label>リモートホスト（任意・空でローカル実行）
+                  <input placeholder="例: 192.168.1.10:8080" bind:value={paneRemoteHost} />
                 </label>
                 <label>起動コマンド（1行1コマンド）
                   <textarea rows="3" placeholder="npm run dev" bind:value={paneCmds}></textarea>

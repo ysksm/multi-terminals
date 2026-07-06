@@ -22,11 +22,12 @@ func toRecord(w *domain.Workspace) workspaceRecord {
 			}
 		}
 		paneRecs[i] = paneRecord{
-			ID:        p.ID().String(),
-			Directory: p.Directory().String(),
-			Slot:      p.Slot().Int(),
-			Title:     p.Title().String(),
-			Commands:  cmdRecs,
+			ID:         p.ID().String(),
+			Directory:  p.Directory().String(),
+			Slot:       p.Slot().Int(),
+			Title:      p.Title().String(),
+			RemoteHost: p.RemoteHost().String(),
+			Commands:   cmdRecs,
 		}
 	}
 
@@ -113,7 +114,12 @@ func toDomain(rec workspaceRecord) (*domain.Workspace, error) {
 			return nil, fmt.Errorf("invalid title %q for pane %q: %w", pr.Title, pr.ID, err)
 		}
 
-		pane, err := domain.NewPane(paneID, dir, slot, title, cmds)
+		remoteHost, err := domain.NewRemoteHost(pr.RemoteHost)
+		if err != nil {
+			return nil, fmt.Errorf("invalid remote host %q for pane %q: %w", pr.RemoteHost, pr.ID, err)
+		}
+
+		pane, err := domain.NewPane(paneID, dir, slot, title, remoteHost, cmds)
 		if err != nil {
 			return nil, fmt.Errorf("cannot build pane %q: %w", pr.ID, err)
 		}

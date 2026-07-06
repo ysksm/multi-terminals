@@ -13,7 +13,7 @@
 ```
 core/domain          … Entities, Value Objects, 集約, Repository/ポート（依存ゼロ・stdlib のみ）
 core/application     … CQRS Command/Query ハンドラ, ポート, DTO（stdlib のみ）
-core/infrastructure  … JSON 永続化(jsonstore) / ターミナル(go-pty: PTY・ConPTY)
+core/infrastructure  … JSON 永続化(jsonstore) / ターミナル(go-pty: PTY・ConPTY) / リモート実行(remoteterm: WebSocket)
 apps/web             … net/http REST + gorilla/websocket（薄いアダプタ）
 frontend             … Svelte + xterm.js（/api を web へプロキシ）
 ```
@@ -111,6 +111,38 @@ cd apps/wails && wails build
 Windows / macOS 両方の成果物は GitHub Actions（`.github/workflows/build.yml`）で
 ネイティブランナー上から取得できます。
 
+## リモート実行（他の端末で実行する）
+
+ペインごとに「リモートホスト」を設定すると、そのペインのターミナルは**別マシンで動いている multi-terminals 上で実行**され、出力は接続元に返ってストリーム表示されます。待ち受け側・接続側とも同じバイナリです。
+
+```
+[マシン A: 接続側]                     [マシン B: 待ち受け側]
+ブラウザ ── ws ──> backend A ── ws ──> backend B ──> PTY（B のローカルで実行）
+                     └─ /api/remote/terminal（Bearer トークン認証）─┘
+```
+
+### 1. 待ち受け側（マシン B）
+
+共有トークンを設定して起動します。**トークン未設定のときリモート受付は無効**（403）なので、意図せずシェルが公開されることはありません。
+
+```sh
+MULTI_TERMINALS_REMOTE_TOKEN=<共有シークレット> PORT=8080 ./bin/multi-terminals
+```
+
+### 2. 接続側（マシン A）
+
+同じトークンを設定して起動し、ペインの追加/編集フォームの「リモートホスト」に待ち受け側のアドレス（例: `192.168.1.10:8080`、`https://host.example`）を入力します。空欄なら従来どおりローカル実行です。
+
+```sh
+MULTI_TERMINALS_REMOTE_TOKEN=<共有シークレット> ./bin/multi-terminals
+```
+
+ワークスペースを「開く」と、リモートホスト付きペインはマシン B 上でシェルを起動し、キー入力・リサイズは B へ、出力は A へ双方向に流れます。リモートペインもスクロールバック復元（ブラウザ再接続時）に対応します。
+
+- プロトコル: `GET /api/remote/terminal`（WebSocket）。制御は JSON テキストフレーム（`start` / `input`(base64) / `resize` / `exit`）、端末出力はバイナリフレーム。実装は `core/infrastructure/remoteterm`。
+- 認証: `Authorization: Bearer <トークン>`（定数時間比較）。トークンは待ち受け・接続の両側で同じ値を設定します。
+- セキュリティ: リモート受付はシェル実行そのものを公開する機能です。信頼できるネットワーク（VPN / LAN）内で使うか、TLS 終端（`https://` → `wss://` 自動変換に対応）を挟んでください。
+
 ## 環境変数
 
 | 変数 | 既定 | 説明 |
@@ -118,6 +150,7 @@ Windows / macOS 両方の成果物は GitHub Actions（`.github/workflows/build.
 | `PORT` | `8080` | バックエンドの待受ポート |
 | `MULTI_TERMINALS_DIR` | OS のユーザー設定ディレクトリ配下 `multi-terminals/` | ワークスペース JSON と `app-state.json` の保存先 |
 | `MULTI_TERMINALS_SHELL` | （Windows のみ）`powershell.exe` | Windows で使うデフォルトシェル（`cmd.exe` 等に上書き可） |
+| `MULTI_TERMINALS_REMOTE_TOKEN` | （未設定 = リモート無効） | リモート実行の共有シークレット。設定すると `/api/remote/terminal` で他インスタンスからの接続を受け付け、他ホストへ接続する際も同じ値を送る |
 | `SHELL` | （Unix）`/bin/sh` | Unix のデフォルトシェル |
 | `VITE_API_TARGET` | `http://localhost:8080` | Vite プロキシのバックエンド宛先 |
 

@@ -31,7 +31,7 @@ func mustSlot(t *testing.T, v int) SlotIndex {
 
 func TestNewPane(t *testing.T) {
 	cmd, _ := NewStartupCommand("ls", false)
-	p, err := NewPane(mustPaneId(t, "p1"), mustDir(t, "/tmp"), mustSlot(t, 0), PaneTitle{}, []StartupCommand{cmd})
+	p, err := NewPane(mustPaneId(t, "p1"), mustDir(t, "/tmp"), mustSlot(t, 0), PaneTitle{}, RemoteHost{}, []StartupCommand{cmd})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestNewPane(t *testing.T) {
 
 func TestNewPaneRejectsZeroId(t *testing.T) {
 	var zero PaneId
-	if _, err := NewPane(zero, mustDir(t, "/tmp"), mustSlot(t, 0), PaneTitle{}, nil); err == nil {
+	if _, err := NewPane(zero, mustDir(t, "/tmp"), mustSlot(t, 0), PaneTitle{}, RemoteHost{}, nil); err == nil {
 		t.Error("zero pane id should error")
 	}
 }
@@ -59,7 +59,7 @@ func TestNewPaneRejectsZeroId(t *testing.T) {
 func TestPaneCommandsIsDefensiveCopy(t *testing.T) {
 	cmd, _ := NewStartupCommand("ls", false)
 	src := []StartupCommand{cmd}
-	p, _ := NewPane(mustPaneId(t, "p1"), mustDir(t, "/tmp"), mustSlot(t, 0), PaneTitle{}, src)
+	p, _ := NewPane(mustPaneId(t, "p1"), mustDir(t, "/tmp"), mustSlot(t, 0), PaneTitle{}, RemoteHost{}, src)
 	// 入力スライスを書き換えても内部状態は不変であること
 	other, _ := NewStartupCommand("rm -rf /", true)
 	src[0] = other

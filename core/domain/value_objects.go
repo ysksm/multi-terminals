@@ -89,6 +89,25 @@ func NewStartupCommand(command string, autoRun bool) (StartupCommand, error) {
 func (c StartupCommand) Command() string { return c.command }
 func (c StartupCommand) AutoRun() bool   { return c.autoRun }
 
+// RemoteHost はペインのターミナルを実行するリモートホスト（例: "192.168.1.10:8080"、
+// "https://host.example:8443"）。空は「ローカル実行」を表す。
+type RemoteHost struct{ value string }
+
+// NewRemoteHost は前後空白をトリムして RemoteHost を生成する。
+// 空は許容（ローカル実行）。内部の空白・制御文字を含む場合はエラー。
+func NewRemoteHost(value string) (RemoteHost, error) {
+	v := strings.TrimSpace(value)
+	for _, r := range v {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			return RemoteHost{}, errors.New("remote host must not contain whitespace or control characters")
+		}
+	}
+	return RemoteHost{value: v}, nil
+}
+
+func (h RemoteHost) String() string { return h.value }
+func (h RemoteHost) IsZero() bool   { return h.value == "" }
+
 // MaxPaneTitleLen は PaneTitle の最大長（ルーン単位）。
 const MaxPaneTitleLen = 100
 

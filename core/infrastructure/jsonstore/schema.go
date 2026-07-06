@@ -11,12 +11,15 @@ type startupCommandRecord struct {
 }
 
 // paneRecord is the JSON DTO for a single pane.
+// RemoteHost is empty for local panes; the field is additive and old records
+// without it load as local panes, so the schema version is unchanged.
 type paneRecord struct {
-	ID        string                 `json:"id"`
-	Directory string                 `json:"directory"`
-	Slot      int                    `json:"slot"`
-	Title     string                 `json:"title,omitempty"`
-	Commands  []startupCommandRecord `json:"commands"`
+	ID         string                 `json:"id"`
+	Directory  string                 `json:"directory"`
+	Slot       int                    `json:"slot"`
+	Title      string                 `json:"title,omitempty"`
+	RemoteHost string                 `json:"remoteHost,omitempty"`
+	Commands   []startupCommandRecord `json:"commands"`
 }
 
 // workspaceRecord is the JSON DTO for a workspace aggregate.
