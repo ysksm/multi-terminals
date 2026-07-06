@@ -158,8 +158,10 @@ func (s *Service) Branches(dir string) ([]port.BranchInfo, error) {
 
 // Checkout は branch に切り替える。リモートのみのブランチは git switch が
 // 追跡ブランチを自動作成する。
+// branch は HTTP body 由来の外部入力のため、"--" でオプション区切りを固定し
+// "-c..." のようなダッシュ始まりの値が git オプションとして解釈されるのを防ぐ。
 func (s *Service) Checkout(dir, branch string) error {
-	if _, err := git(dir, "switch", branch); err != nil {
+	if _, err := git(dir, "switch", "--", branch); err != nil {
 		return fmt.Errorf("gitcli: switch: %w", err)
 	}
 	return nil

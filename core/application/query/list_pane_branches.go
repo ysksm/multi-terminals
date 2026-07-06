@@ -63,7 +63,8 @@ func (h *ListPaneBranchesHandler) Handle(ctx context.Context, q ListPaneBranches
 
 	branches, err := h.git.Branches(dir)
 	if err != nil {
-		return nil, fmt.Errorf("list pane branches: %w", err)
+		// 非リポジトリ等の git エラーは 4xx 相当として扱う
+		return nil, apperr.Validation(fmt.Errorf("list pane branches: %w", err))
 	}
 	dtos := make([]PaneBranchDTO, len(branches))
 	for i, b := range branches {

@@ -37,6 +37,7 @@ type FakeGitService struct {
 	Clones      []CloneCall
 	CloneErr    error
 	BranchLists map[string][]port.BranchInfo // dir -> branches
+	BranchesErr error                        // Branches のエラー注入
 	Checkouts   []CheckoutCall
 	CheckoutErr error
 	GitOps      []GitOpCall
@@ -81,6 +82,9 @@ func (f *FakeGitService) Clone(url, dest string) (string, error) {
 func (f *FakeGitService) Branches(dir string) ([]port.BranchInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.BranchesErr != nil {
+		return nil, f.BranchesErr
+	}
 	return f.BranchLists[dir], nil
 }
 

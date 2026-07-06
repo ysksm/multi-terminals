@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/application/apptest"
 	"github.com/ysksm/multi-terminals/core/application/port"
 	"github.com/ysksm/multi-terminals/core/application/query"
@@ -58,6 +59,20 @@ func TestListPaneBranchesHandler_WorkspaceNotFound(t *testing.T) {
 	_, err := h.Handle(context.Background(), query.ListPaneBranchesQuery{WorkspaceID: "nope", PaneID: "p"})
 	if !errors.Is(err, domain.ErrWorkspaceNotFound) {
 		t.Errorf("expected ErrWorkspaceNotFound, got %v", err)
+	}
+}
+
+func TestListPaneBranchesHandler_GitErrorIsValidation(t *testing.T) {
+	repo := apptest.NewFakeRepo()
+	wsID, paneID := setupPane(t, repo, "/tmp/not-a-repo")
+	git := apptest.NewFakeGitService()
+	git.BranchesErr = errors.New("gitcli: branch: exit status 128")
+
+	h := query.NewListPaneBranchesHandler(repo, git)
+	_, err := h.Handle(context.Background(), query.ListPaneBranchesQuery{WorkspaceID: wsID, PaneID: paneID})
+	var ve *apperr.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %v", err)
 	}
 }
 

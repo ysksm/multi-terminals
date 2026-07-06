@@ -312,6 +312,21 @@ func TestCheckout_RemoteOnlyBranchCreatesTracking(t *testing.T) {
 	}
 }
 
+func TestCheckout_OptionInjectionRejected(t *testing.T) {
+	dir := initRepo(t)
+	s := New()
+	if err := s.Checkout(dir, "-cpwned"); err == nil {
+		t.Fatal("expected error for option-like branch name, got nil")
+	}
+	out, err := exec.Command("git", "-C", dir, "branch", "--list", "pwned").Output()
+	if err != nil {
+		t.Fatalf("git branch --list: %v", err)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		t.Errorf("pwned branch was created via option injection: %q", out)
+	}
+}
+
 func TestCheckout_UnknownBranchFails(t *testing.T) {
 	dir := initRepo(t)
 	s := New()
