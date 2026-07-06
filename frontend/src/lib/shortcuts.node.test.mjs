@@ -34,16 +34,17 @@ assert.equal(paneShortcutAction(ev('z')), 'maximize', '小文字 key でも maxi
 assert.equal(paneShortcutAction(ev('F')), 'finder', 'Ctrl+Shift+F → finder')
 assert.equal(paneShortcutAction(ev('V')), 'vscode', 'Ctrl+Shift+V → vscode')
 assert.equal(paneShortcutAction(ev('G')), 'github', 'Ctrl+Shift+G → github')
+assert.equal(paneShortcutAction(ev('B')), 'gitmenu', 'Ctrl+Shift+B → gitmenu')
 assert.equal(paneShortcutAction(ev('X')), null, '対象外キーは null')
 assert.equal(paneShortcutAction(ev('Z', { ctrlKey: false })), null, 'Ctrl なしは null')
 assert.equal(paneShortcutAction(ev('Z', { shiftKey: false })), null, 'Shift なしは null')
 assert.equal(paneShortcutAction(ev('Z', { altKey: true })), null, 'Alt 付きは null')
 assert.equal(paneShortcutAction(ev('Z', { metaKey: true })), null, 'Meta 付きは null')
 
-// ヘルプ一覧: ペイングループに 4 ショートカットが載っている
+// ヘルプ一覧: ペイングループに 5 ショートカットが載っている
 const paneGroup = SHORTCUT_GROUPS.find((g) => g.label === 'ペイン')
 assert.ok(paneGroup, 'ペイングループが存在する')
-for (const kw of ['最大化', 'Finder', 'VS Code', 'リモート']) {
+for (const kw of ['最大化', 'Finder', 'VS Code', 'リモート', 'git メニュー']) {
   assert.ok(
     paneGroup.items.some((i) => i.desc.includes(kw)),
     `ペイングループに「${kw}」の項目がある`
