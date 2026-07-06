@@ -100,3 +100,67 @@ func (s *Service) Clone(url, dest string) (string, error) {
 	}
 	return expanded, nil
 }
+
+// splitLines は出力を行に分割し、空行を除いて返す。
+func splitLines(out string) []string {
+	var lines []string
+	for _, l := range strings.Split(out, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
+}
+
+// Branches はローカル + リモート追跡ブランチを返す。ローカルと同名の
+// リモートブランチはローカル優先で重複除去する。
+func (s *Service) Branches(dir string) ([]port.BranchInfo, error) {
+	// detached HEAD では current は空のまま(どの行も IsCurrent=false)
+	current, _ := git(dir, "symbolic-ref", "--short", "-q", "HEAD")
+
+	localOut, err := git(dir, "branch", "--format=%(refname:short)")
+	if err != nil {
+		return nil, fmt.Errorf("gitcli: branch: %w", err)
+	}
+	remoteOut, err := git(dir, "branch", "-r", "--format=%(refname:short)")
+	if err != nil {
+		return nil, fmt.Errorf("gitcli: branch -r: %w", err)
+	}
+
+	var branches []port.BranchInfo
+	seen := map[string]bool{}
+	for _, name := range splitLines(localOut) {
+		// detached HEAD の擬似エントリ "(HEAD detached at ...)" は除外
+		if strings.HasPrefix(name, "(") {
+			continue
+		}
+		seen[name] = true
+		branches = append(branches, port.BranchInfo{Name: name, IsCurrent: name == current})
+	}
+	for _, ref := range splitLines(remoteOut) {
+		// "origin/HEAD -> origin/main" 表記と origin/HEAD を除外
+		if strings.Contains(ref, " ") || strings.HasSuffix(ref, "/HEAD") {
+			continue
+		}
+		slash := strings.Index(ref, "/")
+		if slash < 0 {
+			continue
+		}
+		name := ref[slash+1:]
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		branches = append(branches, port.BranchInfo{Name: name, IsRemote: true})
+	}
+	return branches, nil
+}
+
+// Checkout は branch に切り替える。リモートのみのブランチは git switch が
+// 追跡ブランチを自動作成する。
+func (s *Service) Checkout(dir, branch string) error {
+	if _, err := git(dir, "switch", branch); err != nil {
+		return fmt.Errorf("gitcli: switch: %w", err)
+	}
+	return nil
+}

@@ -5,6 +5,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/ysksm/multi-terminals/core/application/port"
 )
 
 // initRepo は tmp 配下に main ブランチの git リポジトリを作り、1コミット入れる。
@@ -176,5 +178,116 @@ func TestExpandTilde(t *testing.T) {
 	// チルダ無しはそのまま
 	if got, _ := expandTilde("/abs/path"); got != "/abs/path" {
 		t.Errorf("expandTilde(/abs/path) = %q", got)
+	}
+}
+
+// initClonePair は bare リモートとその clone を作り (bare, clone) を返す。
+func initClonePair(t *testing.T) (bare, clone string) {
+	t.Helper()
+	src := initRepo(t)
+	bare = filepath.Join(t.TempDir(), "remote.git")
+	if out, err := exec.Command("git", "clone", "--bare", src, bare).CombinedOutput(); err != nil {
+		t.Fatalf("clone --bare: %v\n%s", err, out)
+	}
+	clone = filepath.Join(t.TempDir(), "clone")
+	if out, err := exec.Command("git", "clone", bare, clone).CombinedOutput(); err != nil {
+		t.Fatalf("clone: %v\n%s", err, out)
+	}
+	return bare, clone
+}
+
+// runGit は dir で git を実行して失敗なら Fatal。
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+		"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func TestBranches_LocalAndRemote(t *testing.T) {
+	_, clone := initClonePair(t)
+	// ローカルブランチ feature を作り、リモートのみのブランチ remote-only を作る
+	runGit(t, clone, "branch", "feature")
+	runGit(t, clone, "push", "origin", "main:remote-only")
+	runGit(t, clone, "fetch", "origin")
+
+	s := New()
+	branches, err := s.Branches(clone)
+	if err != nil {
+		t.Fatalf("Branches: %v", err)
+	}
+	got := map[string]port.BranchInfo{}
+	for _, b := range branches {
+		got[b.Name] = b
+	}
+	if b := got["main"]; !b.IsCurrent || b.IsRemote {
+		t.Errorf("main = %+v, want {IsCurrent:true IsRemote:false}", b)
+	}
+	if b := got["feature"]; b.IsCurrent || b.IsRemote {
+		t.Errorf("feature = %+v, want {IsCurrent:false IsRemote:false}", b)
+	}
+	if b := got["remote-only"]; !b.IsRemote {
+		t.Errorf("remote-only = %+v, want {IsRemote:true}", b)
+	}
+	if _, ok := got["HEAD"]; ok {
+		t.Error("origin/HEAD が混入している")
+	}
+	// main はローカル優先で 1 件のみ(origin/main と重複しない)
+	count := 0
+	for _, b := range branches {
+		if b.Name == "main" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("main が %d 件(重複除去されていない)", count)
+	}
+}
+
+func TestCheckout_LocalBranch(t *testing.T) {
+	dir := initRepo(t)
+	runGit(t, dir, "branch", "feature")
+
+	s := New()
+	if err := s.Checkout(dir, "feature"); err != nil {
+		t.Fatalf("Checkout: %v", err)
+	}
+	info, err := s.Info(dir)
+	if err != nil {
+		t.Fatalf("Info: %v", err)
+	}
+	if info.Branch != "feature" {
+		t.Errorf("branch = %q, want feature", info.Branch)
+	}
+}
+
+func TestCheckout_RemoteOnlyBranchCreatesTracking(t *testing.T) {
+	_, clone := initClonePair(t)
+	runGit(t, clone, "push", "origin", "main:remote-only")
+	runGit(t, clone, "fetch", "origin")
+
+	s := New()
+	if err := s.Checkout(clone, "remote-only"); err != nil {
+		t.Fatalf("Checkout(remote-only): %v", err)
+	}
+	info, err := s.Info(clone)
+	if err != nil {
+		t.Fatalf("Info: %v", err)
+	}
+	if info.Branch != "remote-only" {
+		t.Errorf("branch = %q, want remote-only", info.Branch)
+	}
+}
+
+func TestCheckout_UnknownBranchFails(t *testing.T) {
+	dir := initRepo(t)
+	s := New()
+	if err := s.Checkout(dir, "no-such-branch"); err == nil {
+		t.Fatal("expected error for unknown branch, got nil")
 	}
 }
