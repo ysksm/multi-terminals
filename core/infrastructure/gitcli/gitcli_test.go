@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ysksm/multi-terminals/core/application/port"
@@ -246,6 +247,33 @@ func TestBranches_LocalAndRemote(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("main が %d 件(重複除去されていない)", count)
+	}
+}
+
+func TestBranches_DetachedHEAD(t *testing.T) {
+	dir := initRepo(t)
+	runGit(t, dir, "checkout", "--detach", "HEAD")
+
+	s := New()
+	branches, err := s.Branches(dir)
+	if err != nil {
+		t.Fatalf("Branches: %v", err)
+	}
+	foundMain := false
+	for _, b := range branches {
+		// "(HEAD detached at ...)" 擬似エントリが混入していないこと
+		if strings.HasPrefix(b.Name, "(") {
+			t.Errorf("detached HEAD の擬似エントリが混入: %+v", b)
+		}
+		if b.Name == "main" {
+			foundMain = true
+			if b.IsCurrent {
+				t.Errorf("main = %+v, want IsCurrent=false (detached HEAD 中)", b)
+			}
+		}
+	}
+	if !foundMain {
+		t.Error("main がブランチ一覧に無い")
 	}
 }
 

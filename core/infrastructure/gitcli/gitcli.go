@@ -138,10 +138,8 @@ func (s *Service) Branches(dir string) ([]port.BranchInfo, error) {
 		branches = append(branches, port.BranchInfo{Name: name, IsCurrent: name == current})
 	}
 	for _, ref := range splitLines(remoteOut) {
-		// "origin/HEAD -> origin/main" 表記と origin/HEAD を除外
-		if strings.Contains(ref, " ") || strings.HasSuffix(ref, "/HEAD") {
-			continue
-		}
+		// スラッシュを含まない ref はリモートの symbolic HEAD なので除外
+		// (%(refname:short) は origin/HEAD を裸のリモート名 "origin" で出力する)
 		slash := strings.Index(ref, "/")
 		if slash < 0 {
 			continue
