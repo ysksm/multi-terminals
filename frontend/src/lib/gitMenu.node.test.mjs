@@ -1,5 +1,5 @@
 import assert from 'node:assert'
-import { menuKeyAction } from './gitMenu.js'
+import { menuKeyAction, filterBranches } from './gitMenu.js'
 
 const st = (branchCount, selectedIndex) => ({ branchCount, selectedIndex })
 
@@ -22,5 +22,26 @@ assert.deepEqual(menuKeyAction('f', st(1, 0)), { type: 'op', op: 'fetch' }, 'f �
 // 閉じる・対象外
 assert.deepEqual(menuKeyAction('Escape', st(1, 0)), { type: 'close' }, 'Esc で閉じる')
 assert.equal(menuKeyAction('x', st(1, 0)), null, '対象外キーは null')
+
+// filterBranches: ブランチ名の部分一致(大文字小文字無視)
+const bs = [
+  { name: 'main', isCurrent: true, isRemote: false },
+  { name: 'feature/login', isCurrent: false, isRemote: false },
+  { name: 'feature/Logout', isCurrent: false, isRemote: true },
+  { name: 'hotfix', isCurrent: false, isRemote: false },
+]
+assert.deepEqual(filterBranches(bs, ''), bs, '空クエリは全件')
+assert.deepEqual(filterBranches(bs, '   '), bs, '空白のみは全件')
+assert.deepEqual(
+  filterBranches(bs, 'feature').map((b) => b.name),
+  ['feature/login', 'feature/Logout'],
+  '部分一致'
+)
+assert.deepEqual(
+  filterBranches(bs, 'LOGOUT').map((b) => b.name),
+  ['feature/Logout'],
+  '大文字小文字を無視'
+)
+assert.deepEqual(filterBranches(bs, 'nomatch'), [], '一致なしは空配列')
 
 console.log('gitMenu: OK')

@@ -1,4 +1,17 @@
 /**
+ * ブランチ一覧を名前の部分一致で絞り込む pure 関数(大文字小文字を無視)。
+ * クエリが空(空白のみ含む)なら元の配列をそのまま返す。
+ * @param {Array<{name: string}>} branches
+ * @param {string} query
+ * @returns {Array<{name: string}>}
+ */
+export function filterBranches(branches, query) {
+  const q = query.trim().toLowerCase()
+  if (!q) return branches
+  return branches.filter((b) => b.name.toLowerCase().includes(q))
+}
+
+/**
  * git メニュー内のキーボード操作を action に対応付ける pure 関数。
  * @param {string} key KeyboardEvent.key
  * @param {{branchCount: number, selectedIndex: number}} state

@@ -1,7 +1,7 @@
 <script>
   import { onMount, tick } from 'svelte'
   import { api } from './api.js'
-  import { menuKeyAction } from './gitMenu.js'
+  import { menuKeyAction, filterBranches } from './gitMenu.js'
 
   let { workspaceId, paneId, onClose, onChanged } = $props()
 
@@ -10,7 +10,19 @@
   let running = $state('') // '' | 'pull' | 'push' | 'fetch' | 'checkout'
   let errorMsg = $state('')
   let selectedIndex = $state(0)
+  let filter = $state('')
   let root // メニュールート要素(フォーカス・外側クリック判定用)
+  let filterInput = $state() // 絞り込み入力欄(既定のフォーカス先)
+
+  // 絞り込み後のブランチ一覧。selectedIndex はこの配列に対するインデックス。
+  const filtered = $derived(filterBranches(branches, filter))
+
+  // 絞り込みで件数が減ったとき selectedIndex が範囲外にならないようクランプする。
+  $effect(() => {
+    if (selectedIndex > filtered.length - 1) {
+      selectedIndex = Math.max(filtered.length - 1, 0)
+    }
+  })
 
   async function loadBranches() {
     loading = true
@@ -39,24 +51,41 @@
     } finally {
       running = ''
       // ブラウザは disabled になった要素(直前にクリックしたボタン)から自動的にフォーカスを外す。
-      // メニューを開いたままキー操作(Esc/矢印/p,u,f)を続けられるよう、ルートへフォーカスを戻す。
+      // メニューを開いたままキー操作を続けられるよう、絞り込み入力へフォーカスを戻す。
       await tick()
-      root?.focus()
+      ;(filterInput ?? root)?.focus()
     }
   }
 
   const runOp = (op) => run(op, () => api.paneGitOp(workspaceId, paneId, op))
   const checkout = (branch) => run('checkout', () => api.paneGitCheckout(workspaceId, paneId, branch))
 
+  // action を実行する。呼び出し元がイベントの preventDefault / stopPropagation を担う。
+  function applyAction(action) {
+    if (action.type === 'close') onClose?.()
+    else if (action.type === 'move') selectedIndex = action.index
+    else if (action.type === 'checkout') checkout(filtered[selectedIndex].name)
+    else if (action.type === 'op') runOp(action.op)
+  }
+
+  // ルート(入力欄以外)にフォーカスがあるときのキー操作。p/u/f も ops として効く。
   function onKeydown(e) {
-    const action = menuKeyAction(e.key, { branchCount: branches.length, selectedIndex })
+    const action = menuKeyAction(e.key, { branchCount: filtered.length, selectedIndex })
     if (!action) return
     e.preventDefault()
     e.stopPropagation()
-    if (action.type === 'close') onClose?.()
-    else if (action.type === 'move') selectedIndex = action.index
-    else if (action.type === 'checkout') checkout(branches[selectedIndex].name)
-    else if (action.type === 'op') runOp(action.op)
+    applyAction(action)
+  }
+
+  // 絞り込み入力欄でのキー操作。移動・checkout・close だけを横取りし、
+  // 文字キー(p/u/f を含む)は入力へ通して絞り込みに使う。ops キーは発火させない。
+  function onFilterKeydown(e) {
+    const action = menuKeyAction(e.key, { branchCount: filtered.length, selectedIndex })
+    // 入力欄のキーはルートの onKeydown に伝播させない(二重処理・ops 誤発火の防止)。
+    e.stopPropagation()
+    if (!action || action.type === 'op') return
+    e.preventDefault()
+    applyAction(action)
   }
 
   // メニュー外クリックで閉じる(開いたクリック自体はバブリング完了後なので拾わない)
@@ -66,7 +95,7 @@
 
   onMount(() => {
     loadBranches()
-    root?.focus()
+    ;(filterInput ?? root)?.focus()
   })
 </script>
 
@@ -91,24 +120,37 @@
   {:else if branches.length === 0}
     <div class="muted">ブランチなし</div>
   {:else}
-    <ul>
-      {#each branches as b, i (b.name)}
-        <li>
-          <button
-            class="branch"
-            class:selected={i === selectedIndex}
-            disabled={!!running || b.isCurrent}
-            onclick={() => checkout(b.name)}
-            onmouseenter={() => (selectedIndex = i)}
-          >
-            <span class="check">{b.isCurrent ? '✓' : ''}</span>
-            {b.name}
-            {#if b.isRemote}<span class="remote">origin</span>{/if}
-            {#if running === 'checkout' && i === selectedIndex}…{/if}
-          </button>
-        </li>
-      {/each}
-    </ul>
+    <input
+      class="filter"
+      type="text"
+      placeholder="ブランチを絞り込み…"
+      bind:value={filter}
+      bind:this={filterInput}
+      oninput={() => (selectedIndex = 0)}
+      onkeydown={onFilterKeydown}
+    />
+    {#if filtered.length === 0}
+      <div class="muted">一致するブランチなし</div>
+    {:else}
+      <ul>
+        {#each filtered as b, i (b.name)}
+          <li>
+            <button
+              class="branch"
+              class:selected={i === selectedIndex}
+              disabled={!!running || b.isCurrent}
+              onclick={() => checkout(b.name)}
+              onmouseenter={() => (selectedIndex = i)}
+            >
+              <span class="check">{b.isCurrent ? '✓' : ''}</span>
+              <span class="name">{b.name}</span>
+              {#if b.isRemote}<span class="remote">origin</span>{/if}
+              {#if running === 'checkout' && i === selectedIndex}…{/if}
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
   {/if}
   {#if errorMsg}
     <div class="error">{errorMsg}</div>
@@ -121,14 +163,29 @@
     top: 100%;
     left: 0;
     z-index: 30;
-    min-width: 220px;
-    max-width: 340px;
+    min-width: 300px;
+    max-width: 520px;
     padding: 6px;
     background: var(--panel-2);
     border: 1px solid var(--border);
     border-radius: 6px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
     outline: none;
+  }
+  .filter {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 6px;
+    padding: 4px 6px;
+    font-size: 12px;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    outline: none;
+  }
+  .filter:focus {
+    border-color: var(--accent-bg);
   }
   .ops {
     display: flex;
@@ -173,10 +230,18 @@
     opacity: 0.7;
   }
   .check {
+    flex: none;
     width: 1em;
   }
+  .name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .remote {
-    margin-left: auto;
+    flex: none;
     font-size: 10px;
     opacity: 0.6;
   }
