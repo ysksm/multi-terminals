@@ -639,7 +639,8 @@
                       <input placeholder="/path/to/project" bind:value={editDir} />
                     </label>
                     <label>リモートホスト（任意・空でローカル実行）
-                      <input placeholder="例: 192.168.1.10:8080" bind:value={editRemoteHost} />
+                      <input placeholder="例: 192.168.1.10:8080 または ssh://user@host" bind:value={editRemoteHost} />
+                      <small class="muted">multi-terminals 同士は host:port（TLS は https://）。既存 SSH サーバへは ssh://user@host[:port]（~/.ssh の鍵で認証）。</small>
                     </label>
                     <label>起動コマンド（1行1コマンド）
                       <textarea rows="3" placeholder="npm run dev" bind:value={editCmds}></textarea>
@@ -702,7 +703,8 @@
                   <input placeholder="/path/to/project" bind:value={paneDir} />
                 </label>
                 <label>リモートホスト（任意・空でローカル実行）
-                  <input placeholder="例: 192.168.1.10:8080" bind:value={paneRemoteHost} />
+                  <input placeholder="例: 192.168.1.10:8080 または ssh://user@host" bind:value={paneRemoteHost} />
+                  <small class="muted">multi-terminals 同士は host:port（TLS は https://）。既存 SSH サーバへは ssh://user@host[:port]（~/.ssh の鍵で認証）。</small>
                 </label>
                 <label>起動コマンド（1行1コマンド）
                   <textarea rows="3" placeholder="npm run dev" bind:value={paneCmds}></textarea>

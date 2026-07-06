@@ -9,23 +9,31 @@ import (
 // Compile-time interface assertion.
 var _ port.TerminalRunner = (*DispatchRunner)(nil)
 
-// DispatchRunner routes TerminalStartRequests by RemoteHost: empty host goes
-// to the local runner (PTY on this machine), non-empty host goes to the
-// remote runner (terminal on another multi-terminals instance).
+// DispatchRunner routes TerminalStartRequests by RemoteHost:
+//
+//   - empty host        → local runner (PTY on this machine)
+//   - "ssh://…" host     → ssh runner (PTY on a remote machine via its sshd)
+//   - any other host    → ws runner (terminal on another multi-terminals instance)
 type DispatchRunner struct {
-	local  port.TerminalRunner
-	remote port.TerminalRunner
+	local port.TerminalRunner
+	ws    port.TerminalRunner
+	ssh   port.TerminalRunner
 }
 
-// NewDispatchRunner returns a DispatchRunner over the two runners.
-func NewDispatchRunner(local, remote port.TerminalRunner) *DispatchRunner {
-	return &DispatchRunner{local: local, remote: remote}
+// NewDispatchRunner returns a DispatchRunner over the local, WebSocket and SSH
+// runners.
+func NewDispatchRunner(local, ws, ssh port.TerminalRunner) *DispatchRunner {
+	return &DispatchRunner{local: local, ws: ws, ssh: ssh}
 }
 
-// Start dispatches the request to the local or remote runner.
+// Start dispatches the request to the local, ssh or ws runner by RemoteHost.
 func (d *DispatchRunner) Start(ctx context.Context, req port.TerminalStartRequest) (port.TerminalSession, error) {
-	if req.RemoteHost == "" {
+	switch {
+	case req.RemoteHost == "":
 		return d.local.Start(ctx, req)
+	case IsSSHHost(req.RemoteHost):
+		return d.ssh.Start(ctx, req)
+	default:
+		return d.ws.Start(ctx, req)
 	}
-	return d.remote.Start(ctx, req)
 }

@@ -323,20 +323,27 @@ func TestAuthorizedKeys_AddListRemove(t *testing.T) {
 
 func TestDispatchRunner_RoutesByRemoteHost(t *testing.T) {
 	local := apptest.NewFakeTerminalRunner()
-	remote := apptest.NewFakeTerminalRunner()
-	d := NewDispatchRunner(local, remote)
+	ws := apptest.NewFakeTerminalRunner()
+	sshR := apptest.NewFakeTerminalRunner()
+	d := NewDispatchRunner(local, ws, sshR)
 
 	if _, err := d.Start(context.Background(), port.TerminalStartRequest{SessionID: "a"}); err != nil {
 		t.Fatalf("local Start: %v", err)
 	}
 	if _, err := d.Start(context.Background(), port.TerminalStartRequest{SessionID: "b", RemoteHost: "other:8080"}); err != nil {
-		t.Fatalf("remote Start: %v", err)
+		t.Fatalf("ws Start: %v", err)
+	}
+	if _, err := d.Start(context.Background(), port.TerminalStartRequest{SessionID: "c", RemoteHost: "ssh://user@host:22"}); err != nil {
+		t.Fatalf("ssh Start: %v", err)
 	}
 	if len(local.Started) != 1 || local.Started[0].SessionID != "a" {
 		t.Errorf("local runner got %+v", local.Started)
 	}
-	if len(remote.Started) != 1 || remote.Started[0].SessionID != "b" {
-		t.Errorf("remote runner got %+v", remote.Started)
+	if len(ws.Started) != 1 || ws.Started[0].SessionID != "b" {
+		t.Errorf("ws runner got %+v", ws.Started)
+	}
+	if len(sshR.Started) != 1 || sshR.Started[0].SessionID != "c" {
+		t.Errorf("ssh runner got %+v", sshR.Started)
 	}
 }
 

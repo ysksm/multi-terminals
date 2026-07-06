@@ -13,7 +13,7 @@
 ```
 core/domain          … Entities, Value Objects, 集約, Repository/ポート（依存ゼロ・stdlib のみ）
 core/application     … CQRS Command/Query ハンドラ, ポート, DTO（stdlib のみ）
-core/infrastructure  … JSON 永続化(jsonstore) / ターミナル(go-pty: PTY・ConPTY) / リモート実行(remoteterm: WebSocket)
+core/infrastructure  … JSON 永続化(jsonstore) / ターミナル(go-pty: PTY・ConPTY) / リモート実行(remoteterm: WebSocket + SSH)
 apps/web             … net/http REST + gorilla/websocket（薄いアダプタ）
 frontend             … Svelte + xterm.js（/api を web へプロキシ）
 ```
@@ -113,29 +113,67 @@ Windows / macOS 両方の成果物は GitHub Actions（`.github/workflows/build.
 
 ## リモート実行（他の端末で実行する）
 
-ペインごとに「リモートホスト」を設定すると、そのペインのターミナルは**別マシンで動いている multi-terminals 上で実行**され、出力は接続元に返ってストリーム表示されます。待ち受け側・接続側とも同じバイナリです。
+ペインごとに「リモートホスト」を設定すると、そのペインのターミナルは**別マシン上で実行**され、出力は接続元に返ってストリーム表示されます。リモートホストの書式で **2 つの接続方式**を自動で選択します。
+
+| 入力するリモートホスト | 接続方式 | 相手側に必要なもの |
+| --- | --- | --- |
+| `192.168.1.10:8080` / `https://host` | **multi-terminals 方式**（WebSocket + Ed25519） | 相手も multi-terminals を起動し、こちらの公開鍵を許可 |
+| `ssh://user@host[:port]` | **SSH 方式**（既存 sshd へ接続） | 相手で sshd が動作、こちらの SSH 鍵を authorized_keys に登録 |
 
 ```
-[マシン A: 接続側]                     [マシン B: 待ち受け側]
-ブラウザ ── ws ──> backend A ── ws ──> backend B ──> PTY（B のローカルで実行）
-                     └─ /api/remote/terminal（Bearer トークン認証）─┘
+[マシン A: 接続側]                     [マシン B: 実行側]
+ブラウザ ── ws ──> backend A ──┬─ ws ──> backend B ──> PTY   （multi-terminals 方式）
+                              └─ ssh ─> sshd ─────> PTY   （SSH 方式）
 ```
 
-### 認証（Ed25519 公開鍵・自動生成）
+空欄なら従来どおりローカル実行です。どちらの方式でも、ワークスペースを「開く」とリモート側でシェルが起動し、キー入力・リサイズは実行側へ、出力は接続元へ双方向に流れ、スクロールバック復元（ブラウザ再接続時）にも対応します。
 
-各インスタンスは**初回起動時に Ed25519 鍵ペアを自動生成**します（`MULTI_TERMINALS_DIR` 配下の `remote_key` / `remote_key.pub`）。接続は SSH 風のチャレンジ・レスポンスで認証され、**待ち受け側の「許可された鍵」リストに載っている公開鍵だけ**が接続できます。リストが空の間は待ち受け自体が無効（403）なので、意図せずシェルが公開されることはありません。秘密情報がネットワークを流れることもありません。
+### 方式 1: multi-terminals 同士（WebSocket + Ed25519 公開鍵）
 
-### セットアップ手順
+待ち受け側・接続側とも同じバイナリを使い、SSH 風のチャレンジ・レスポンスで認証します。
+
+各インスタンスは**初回起動時に Ed25519 鍵ペアを自動生成**します（`MULTI_TERMINALS_DIR` 配下の `remote_key` / `remote_key.pub`）。**待ち受け側の「許可された鍵」リストに載っている公開鍵だけ**が接続でき、リストが空の間は待ち受け自体が無効（403）なので、意図せずシェルが公開されることはありません。秘密情報がネットワークを流れることもありません。
+
+セットアップ手順:
 
 1. **接続側（マシン A）**: サイドバーの「🔑 リモート設定」を開き、「この端末の公開鍵」（`ed25519:…`）をコピー
 2. **待ち受け側（マシン B）**: 同じく「🔑 リモート設定」を開き、「許可された鍵」に A の公開鍵を追加（＝この時点で待ち受けが有効になる）
-3. **マシン A**: ペインの追加/編集フォームの「リモートホスト」に B のアドレス（例: `192.168.1.10:8080`、`https://host.example`）を入力。空欄なら従来どおりローカル実行
-
-ワークスペースを「開く」と、リモートホスト付きペインはマシン B 上でシェルを起動し、キー入力・リサイズは B へ、出力は A へ双方向に流れます。リモートペインもスクロールバック復元（ブラウザ再接続時）に対応します。
+3. **マシン A**: ペインの追加/編集フォームの「リモートホスト」に B のアドレス（例: `192.168.1.10:8080`、`https://host.example`）を入力
 
 - プロトコル: `GET /api/remote/terminal`（WebSocket）。サーバーが nonce チャレンジ → クライアントが署名（`auth`）→ 制御は JSON テキストフレーム（`start` / `input`(base64) / `resize` / `exit`）、端末出力はバイナリフレーム。実装は `core/infrastructure/remoteterm`。
 - 鍵管理 API: `GET /api/remote/identity`（自分の公開鍵）、`GET/POST/DELETE /api/remote/authorized-keys`（許可リスト）。ファイル直接編集も可（`remote_authorized_keys`、1行1鍵 `ed25519:<base64> コメント`）。
-- セキュリティ: リモート受付はシェル実行そのものを公開する機能です。鍵認証によりなりすまし・盗聴による資格情報漏えいは防げますが、経路の暗号化はしないため、信頼できるネットワーク（VPN / LAN）内で使うか、TLS 終端（`https://` → `wss://` 自動変換に対応）を挟んでください。
+- **プロトコル（暗号化）の選択**: 平文 `ws://` か TLS `wss://` かは**入力スキームで決まります**。`host:port` / `http://` は `ws://`（平文）、`https://` は `wss://`（TLS）へ自動変換されます。経路自体の暗号化はしないため、平文で使う場合は信頼できるネットワーク（VPN / LAN）内に限るか、TLS 終端（`https://`）を挟んでください。
+
+### 方式 2: 既存の SSH サーバへ接続（`ssh://`）
+
+相手に multi-terminals を用意できない・したくない場合は、**普段使っている sshd にそのまま接続**できます。リモートホストに `ssh://user@host[:port]`（ポート既定 22、`user@` 省略時はローカルのログインユーザー）を入力してください。
+
+- **認証は既存の SSH 設定を再利用**します。稼働中の **ssh-agent**（`$SSH_AUTH_SOCK`）→ 次に `~/.ssh` の既定鍵（`id_ed25519` / `id_ecdsa` / `id_rsa`）の順で試します。パスフレーズ付き鍵は agent 経由で使ってください（`ssh-add`）。事前に `ssh-copy-id user@host` で公開鍵を相手の `~/.ssh/authorized_keys` に登録しておきます。
+- **ホスト鍵検証**は `~/.ssh/known_hosts` に対して行います。未登録ホストは接続失敗になるので、一度 `ssh user@host` して登録するか、信頼できるネットワークでは `MULTI_TERMINALS_SSH_INSECURE=1` で検証をスキップできます。
+- リモート側で PTY（`xterm-256color`）を割り当て、ログインシェルを起動します。実装は `core/infrastructure/remoteterm/ssh.go`。
+
+### macOS のファイアウォール
+
+**方式 1 の待ち受け側（マシン B）**は着信接続を受け付けます。macOS のアプリケーションファイアウォールが有効だと、初回起動時に「"multi-terminals" が着信ネットワーク接続を受け付けることを許可しますか？」と尋ねられます。「拒否」すると接続できません。ブロックされた場合は **システム設定 → ネットワーク → ファイアウォール → オプション** でバイナリを「着信接続を許可」に追加してください。同一 LAN/VPN であれば通常問題ありません。方式 2（`ssh://`）は相手の sshd（既に許可済みのことが多い）へ**こちらから接続する**ため、接続側のファイアウォールは影響しません。
+
+### つながらないときの切り分け
+
+接続元マシンから待ち受け側 B を直接叩いて状態を確認できます（方式 1）:
+
+```sh
+# B が起動・到達可能か（許可鍵が空なら 403 が返る＝生きている証拠）
+curl -i http://192.168.1.10:8080/api/remote/authorized-keys
+# 接続側 A の公開鍵（これを B に登録する）
+curl http://localhost:8080/api/remote/identity
+```
+
+| 症状 | 主な原因と対処 |
+| --- | --- |
+| ペインに `HTTP 403 / remote access is disabled` | B に許可鍵が未登録。B の「🔑 リモート設定」に A の公開鍵を追加 |
+| 接続拒否・タイムアウト | ポート未指定（`host` だけだと 80 番）・ファイアウォール・別ネットワーク。`host:8080` のようにポートを付ける |
+| `unauthorized` | 鍵の登録違い（A の鍵を B に登録する）・コピペ欠け |
+| `ssh: host key not in known_hosts` | 一度 `ssh user@host` して登録、または `MULTI_TERMINALS_SSH_INSECURE=1` |
+| `ssh: authentication rejected` | 相手の `authorized_keys` に公開鍵未登録（`ssh-copy-id`）・agent 未起動 |
 
 ## 環境変数
 
@@ -144,6 +182,7 @@ Windows / macOS 両方の成果物は GitHub Actions（`.github/workflows/build.
 | `PORT` | `8080` | バックエンドの待受ポート |
 | `MULTI_TERMINALS_DIR` | OS のユーザー設定ディレクトリ配下 `multi-terminals/` | ワークスペース JSON と `app-state.json` の保存先 |
 | `MULTI_TERMINALS_SHELL` | （Windows のみ）`powershell.exe` | Windows で使うデフォルトシェル（`cmd.exe` 等に上書き可） |
+| `MULTI_TERMINALS_SSH_INSECURE` | （未設定＝検証あり） | `ssh://` 接続で `known_hosts` によるホスト鍵検証をスキップ（`1` 等の非空値で有効）。信頼できる LAN/VPN 限定 |
 
 リモート実行の鍵ファイル（`MULTI_TERMINALS_DIR` 配下、自動生成・管理）:
 

@@ -57,11 +57,17 @@ func BuildDeps(baseDir string) (Deps, error) {
 	}
 	authKeys := remoteterm.NewAuthorizedKeys(filepath.Join(baseDir, remoteterm.AuthorizedKeysFile))
 
-	// Terminal runners: local PTY plus remote dial-out, dispatched per pane by
-	// RemoteHost. The remote-terminal endpoint always executes with the local
-	// runner — a serving instance is the execution target, never a relay.
+	// Terminal runners: local PTY plus two remote transports, dispatched per
+	// pane by RemoteHost. An "ssh://…" host connects to an ordinary sshd; any
+	// other non-empty host connects to another multi-terminals instance's
+	// WebSocket endpoint. The remote-terminal endpoint always executes with the
+	// local runner — a serving instance is the execution target, never a relay.
 	localRunner := terminal.NewRunner()
-	runner := remoteterm.NewDispatchRunner(localRunner, remoteterm.NewRunner(identity))
+	runner := remoteterm.NewDispatchRunner(
+		localRunner,
+		remoteterm.NewRunner(identity),
+		remoteterm.NewSSHRunner(),
+	)
 
 	return Deps{
 		Create:          command.NewCreateWorkspaceHandler(repo, idgen),

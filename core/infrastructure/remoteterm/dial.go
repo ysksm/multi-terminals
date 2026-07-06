@@ -69,9 +69,12 @@ func (r *Runner) Start(ctx context.Context, req port.TerminalStartRequest) (port
 	ws, resp, err := r.dialer.DialContext(ctx, url, http.Header{})
 	if err != nil {
 		if resp != nil {
+			if resp.StatusCode == http.StatusForbidden {
+				return nil, fmt.Errorf("remote terminal: connect %s: remote access is disabled on the listening side (HTTP 403) — add THIS instance's public key to the far machine's authorized keys (🔑 リモート設定 → 許可された鍵)", req.RemoteHost)
+			}
 			return nil, fmt.Errorf("remote terminal: connect %s: %w (HTTP %d)", req.RemoteHost, err, resp.StatusCode)
 		}
-		return nil, fmt.Errorf("remote terminal: connect %s: %w", req.RemoteHost, err)
+		return nil, fmt.Errorf("remote terminal: connect %s: %w — check the host is running and reachable, the port is included (e.g. host:8080), and no firewall is blocking it (macOS: システム設定 → ネットワーク → ファイアウォール)", req.RemoteHost, err)
 	}
 
 	s := &wsSession{
