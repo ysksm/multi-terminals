@@ -44,11 +44,12 @@ type Deps struct {
 	// RemoteTerminal serves the remote-execution WebSocket endpoint
 	// (remoteterm.Handler). Nil disables the endpoint entirely.
 	RemoteTerminal http.HandlerFunc
-	// RemoteIdentity is this instance's auto-generated keypair; RemoteAuthKeys
-	// is the list of client public keys allowed to run terminals here. Nil
-	// disables the corresponding key-management endpoints.
-	RemoteIdentity *remoteterm.Identity
-	RemoteAuthKeys *remoteterm.AuthorizedKeys
+	// RemoteIdentityStore manages this instance's keypair (created on demand by
+	// the user, regeneratable, deletable); RemoteAuthKeys is the list of client
+	// public keys allowed to run terminals here. Nil disables the corresponding
+	// key-management endpoints.
+	RemoteIdentityStore *remoteterm.IdentityStore
+	RemoteAuthKeys      *remoteterm.AuthorizedKeys
 }
 
 // NewMux registers all routes and returns the HTTP mux.
@@ -99,10 +100,14 @@ func NewMux(d Deps) *http.ServeMux {
 		mux.Handle("GET /api/remote/terminal", d.RemoteTerminal)
 	}
 
-	// Remote key management: this instance's public key, and the list of
-	// client keys allowed to run terminals here.
-	if d.RemoteIdentity != nil {
-		mux.HandleFunc("GET /api/remote/identity", d.handleRemoteIdentity)
+	// Remote key management: this instance's own keypair (user-created,
+	// regeneratable, deletable) and the list of client keys allowed to run
+	// terminals here.
+	if d.RemoteIdentityStore != nil {
+		mux.HandleFunc("GET /api/remote/identity", d.handleGetRemoteIdentity)
+		mux.HandleFunc("POST /api/remote/identity", d.handleCreateRemoteIdentity)
+		mux.HandleFunc("POST /api/remote/identity/regenerate", d.handleRegenerateRemoteIdentity)
+		mux.HandleFunc("DELETE /api/remote/identity", d.handleDeleteRemoteIdentity)
 	}
 	if d.RemoteAuthKeys != nil {
 		mux.HandleFunc("GET /api/remote/authorized-keys", d.handleListAuthorizedKeys)
@@ -513,14 +518,62 @@ func (d Deps) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 
 // ---- Remote key management handlers ----
 
-// handleRemoteIdentity returns this instance's public key for pasting into
-// another instance's authorized-keys list. The private key never leaves the
-// server.
-func (d Deps) handleRemoteIdentity(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{
-		"publicKey":   d.RemoteIdentity.PublicKeyString(),
-		"fingerprint": d.RemoteIdentity.Fingerprint(),
-	})
+// identityJSON is the response body for the identity endpoints: exists reports
+// whether a key has been created, and the key fields are present only when it
+// has. The private key never leaves the server.
+func identityJSON(id *remoteterm.Identity, exists bool) map[string]interface{} {
+	if !exists || id == nil {
+		return map[string]interface{}{"exists": false}
+	}
+	return map[string]interface{}{
+		"exists":      true,
+		"publicKey":   id.PublicKeyString(),
+		"fingerprint": id.Fingerprint(),
+	}
+}
+
+// handleGetRemoteIdentity reports whether this instance has a key and, if so,
+// returns its public key for pasting into another instance's authorized list.
+func (d Deps) handleGetRemoteIdentity(w http.ResponseWriter, _ *http.Request) {
+	id, exists := d.RemoteIdentityStore.Current()
+	writeJSON(w, http.StatusOK, identityJSON(id, exists))
+}
+
+// handleCreateRemoteIdentity creates the instance key on explicit user action.
+// It never overwrites an existing key: a second create returns 409 so the user
+// must choose regenerate deliberately.
+func (d Deps) handleCreateRemoteIdentity(w http.ResponseWriter, _ *http.Request) {
+	id, err := d.RemoteIdentityStore.Generate()
+	if errors.Is(err, remoteterm.ErrIdentityExists) {
+		writeJSON(w, http.StatusConflict, map[string]string{"error": "a key already exists; regenerate it to replace it"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, identityJSON(id, true))
+}
+
+// handleRegenerateRemoteIdentity replaces the key with a fresh one. The public
+// key changes, so other machines that authorized the old key must re-authorize.
+func (d Deps) handleRegenerateRemoteIdentity(w http.ResponseWriter, _ *http.Request) {
+	id, err := d.RemoteIdentityStore.Regenerate()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, identityJSON(id, true))
+}
+
+// handleDeleteRemoteIdentity removes the key so the instance has none until one
+// is created again.
+func (d Deps) handleDeleteRemoteIdentity(w http.ResponseWriter, _ *http.Request) {
+	if err := d.RemoteIdentityStore.Delete(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleListAuthorizedKeys returns all authorized client keys. The response

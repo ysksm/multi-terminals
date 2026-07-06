@@ -132,16 +132,16 @@ Windows / macOS 両方の成果物は GitHub Actions（`.github/workflows/build.
 
 待ち受け側・接続側とも同じバイナリを使い、SSH 風のチャレンジ・レスポンスで認証します。
 
-各インスタンスは**初回起動時に Ed25519 鍵ペアを自動生成**します（`MULTI_TERMINALS_DIR` 配下の `remote_key` / `remote_key.pub`）。**待ち受け側の「許可された鍵」リストに載っている公開鍵だけ**が接続でき、リストが空の間は待ち受け自体が無効（403）なので、意図せずシェルが公開されることはありません。秘密情報がネットワークを流れることもありません。
+各インスタンスの Ed25519 鍵ペアは**自動生成されません**。「🔑 リモート設定」で**ユーザーが明示的に作成**したときにだけ生成されます（`MULTI_TERMINALS_DIR` 配下の `remote_key` / `remote_key.pub`）。鍵は同画面から**再作成・削除**もできます（再作成すると公開鍵が変わるため、他端末の「許可された鍵」に登録済みの場合は登録し直しが必要）。**待ち受け側の「許可された鍵」リストに載っている公開鍵だけ**が接続でき、リストが空の間は待ち受け自体が無効（403）なので、意図せずシェルが公開されることはありません。秘密情報がネットワークを流れることもありません。
 
 セットアップ手順:
 
-1. **接続側（マシン A）**: サイドバーの「🔑 リモート設定」を開き、「この端末の公開鍵」（`ed25519:…`）をコピー
+1. **接続側（マシン A）**: サイドバーの「🔑 リモート設定」を開き、「この端末の鍵を作成」で鍵を生成してから、公開鍵（`ed25519:…`）をコピー
 2. **待ち受け側（マシン B）**: 同じく「🔑 リモート設定」を開き、「許可された鍵」に A の公開鍵を追加（＝この時点で待ち受けが有効になる）
 3. **マシン A**: ペインの追加/編集フォームの「リモートホスト」に B のアドレス（例: `192.168.1.10:8080`、`https://host.example`）を入力
 
 - プロトコル: `GET /api/remote/terminal`（WebSocket）。サーバーが nonce チャレンジ → クライアントが署名（`auth`）→ 制御は JSON テキストフレーム（`start` / `input`(base64) / `resize` / `exit`）、端末出力はバイナリフレーム。実装は `core/infrastructure/remoteterm`。
-- 鍵管理 API: `GET /api/remote/identity`（自分の公開鍵）、`GET/POST/DELETE /api/remote/authorized-keys`（許可リスト）。ファイル直接編集も可（`remote_authorized_keys`、1行1鍵 `ed25519:<base64> コメント`）。
+- 鍵管理 API: `GET /api/remote/identity`（鍵の有無・自分の公開鍵）、`POST /api/remote/identity`（作成。既存なら 409）、`POST /api/remote/identity/regenerate`（再作成）、`DELETE /api/remote/identity`（削除）、`GET/POST/DELETE /api/remote/authorized-keys`（許可リスト）。許可リストはファイル直接編集も可（`remote_authorized_keys`、1行1鍵 `ed25519:<base64> コメント`）。
 - **プロトコル（暗号化）の選択**: 平文 `ws://` か TLS `wss://` かは**入力スキームで決まります**。`host:port` / `http://` は `ws://`（平文）、`https://` は `wss://`（TLS）へ自動変換されます。`ws://`（平文）の場合のみ経路が暗号化されないため、平文で使うときは信頼できるネットワーク（VPN / LAN）内に限るか、`https://`（→ `wss://`）で TLS 終端を挟んでください。`wss://` を使えば経路も暗号化されます。
 
 ### 方式 2: 既存の SSH サーバへ接続（`ssh://`）
@@ -184,11 +184,11 @@ curl http://localhost:8080/api/remote/identity
 | `MULTI_TERMINALS_SHELL` | （Windows のみ）`powershell.exe` | Windows で使うデフォルトシェル（`cmd.exe` 等に上書き可） |
 | `MULTI_TERMINALS_SSH_INSECURE` | （未設定＝検証あり） | `ssh://` 接続で `known_hosts` によるホスト鍵検証をスキップ（`1` 等の非空値で有効）。信頼できる LAN/VPN 限定 |
 
-リモート実行の鍵ファイル（`MULTI_TERMINALS_DIR` 配下、自動生成・管理）:
+リモート実行の鍵ファイル（`MULTI_TERMINALS_DIR` 配下。「🔑 リモート設定」から作成/再作成/削除）:
 
 | ファイル | 説明 |
 | --- | --- |
-| `remote_key` | この端末の Ed25519 秘密鍵（0600、初回起動時に自動生成） |
+| `remote_key` | この端末の Ed25519 秘密鍵（0600、ユーザー操作で作成。自動生成なし） |
 | `remote_key.pub` | 対応する公開鍵（他の端末に登録する値） |
 | `remote_authorized_keys` | この端末での実行を許可する公開鍵リスト（空 = 待ち受け無効） |
 | `SHELL` | （Unix）`/bin/sh` | Unix のデフォルトシェル |

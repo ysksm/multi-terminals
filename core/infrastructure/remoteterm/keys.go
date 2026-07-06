@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,45 +39,150 @@ type Identity struct {
 	pub  ed25519.PublicKey
 }
 
-// LoadOrCreateIdentity loads the instance keypair from dir, generating and
-// persisting a new one on first use (private key with 0600 permissions).
-func LoadOrCreateIdentity(dir string) (*Identity, error) {
-	privPath := filepath.Join(dir, PrivateKeyFile)
+// ErrIdentityExists is returned by IdentityStore.Generate when a key already
+// exists (use Regenerate to replace it deliberately).
+var ErrIdentityExists = errors.New("remote identity already exists")
 
+// LoadOrCreateIdentity loads the instance keypair from dir, generating and
+// persisting a new one when absent. Retained for tests and callers that want
+// the legacy auto-create behaviour; the app itself creates keys on demand via
+// IdentityStore.
+func LoadOrCreateIdentity(dir string) (*Identity, error) {
+	id, found, err := loadIdentity(dir)
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		return id, nil
+	}
+	return generateIdentity(dir)
+}
+
+// loadIdentity reads an existing instance keypair from dir. It returns
+// (nil, false, nil) when no key file exists yet — an expected state now that
+// key creation is a deliberate user action — and an error only when a present
+// key file cannot be parsed.
+func loadIdentity(dir string) (*Identity, bool, error) {
+	privPath := filepath.Join(dir, PrivateKeyFile)
 	data, err := os.ReadFile(privPath)
 	switch {
 	case err == nil:
 		seed, err := decodeKey(string(data), ed25519.SeedSize)
 		if err != nil {
-			return nil, fmt.Errorf("remote identity: parse %s: %w", privPath, err)
+			return nil, false, fmt.Errorf("remote identity: parse %s: %w", privPath, err)
 		}
 		priv := ed25519.NewKeyFromSeed(seed)
-		return &Identity{priv: priv, pub: priv.Public().(ed25519.PublicKey)}, nil
-
+		return &Identity{priv: priv, pub: priv.Public().(ed25519.PublicKey)}, true, nil
 	case os.IsNotExist(err):
-		pub, priv, err := ed25519.GenerateKey(rand.Reader)
-		if err != nil {
-			return nil, fmt.Errorf("remote identity: generate key: %w", err)
-		}
-		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return nil, fmt.Errorf("remote identity: create dir: %w", err)
-		}
-		seedLine := keyPrefix + base64.StdEncoding.EncodeToString(priv.Seed()) + "\n"
-		if err := os.WriteFile(privPath, []byte(seedLine), 0o600); err != nil {
-			return nil, fmt.Errorf("remote identity: write private key: %w", err)
-		}
-		id := &Identity{priv: priv, pub: pub}
-		// The .pub file is a convenience copy; failing to write it must not
-		// lose the already-persisted private key.
-		pubLine := id.PublicKeyString() + "\n"
-		if err := os.WriteFile(filepath.Join(dir, PublicKeyFile), []byte(pubLine), 0o644); err != nil {
-			return nil, fmt.Errorf("remote identity: write public key: %w", err)
-		}
-		return id, nil
-
+		return nil, false, nil
 	default:
-		return nil, fmt.Errorf("remote identity: read %s: %w", privPath, err)
+		return nil, false, fmt.Errorf("remote identity: read %s: %w", privPath, err)
 	}
+}
+
+// generateIdentity creates a fresh keypair and persists it to dir, overwriting
+// any existing key files (private key with 0600 permissions).
+func generateIdentity(dir string) (*Identity, error) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("remote identity: generate key: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("remote identity: create dir: %w", err)
+	}
+	seedLine := keyPrefix + base64.StdEncoding.EncodeToString(priv.Seed()) + "\n"
+	if err := os.WriteFile(filepath.Join(dir, PrivateKeyFile), []byte(seedLine), 0o600); err != nil {
+		return nil, fmt.Errorf("remote identity: write private key: %w", err)
+	}
+	id := &Identity{priv: priv, pub: pub}
+	// The .pub file is a convenience copy; failing to write it must not lose
+	// the already-persisted private key.
+	pubLine := id.PublicKeyString() + "\n"
+	if err := os.WriteFile(filepath.Join(dir, PublicKeyFile), []byte(pubLine), 0o644); err != nil {
+		return nil, fmt.Errorf("remote identity: write public key: %w", err)
+	}
+	return id, nil
+}
+
+// deleteIdentity removes the persisted keypair from dir. A missing file is not
+// an error.
+func deleteIdentity(dir string) error {
+	for _, name := range []string{PrivateKeyFile, PublicKeyFile} {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remote identity: remove %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// IdentityStore manages this instance's signing keypair as an explicit,
+// user-controlled resource: the key is created on demand (not auto-generated on
+// startup), can be regenerated, and can be deleted. The current key is cached
+// in memory and kept in sync with disk. Safe for concurrent use.
+type IdentityStore struct {
+	mu  sync.Mutex
+	dir string
+	id  *Identity // nil when no key exists yet
+}
+
+// NewIdentityStore returns a store backed by dir, loading an existing key if
+// one is present. A missing key is not an error — it means no key has been
+// created yet.
+func NewIdentityStore(dir string) (*IdentityStore, error) {
+	id, _, err := loadIdentity(dir)
+	if err != nil {
+		return nil, err
+	}
+	return &IdentityStore{dir: dir, id: id}, nil
+}
+
+// Current returns the current identity and whether one exists. The signature
+// matches the provider Runner expects, so store.Current can be passed directly.
+func (s *IdentityStore) Current() (*Identity, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.id, s.id != nil
+}
+
+// Generate creates and persists a new key. It returns ErrIdentityExists if a
+// key already exists, so a create action never silently overwrites one.
+func (s *IdentityStore) Generate() (*Identity, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.id != nil {
+		return nil, ErrIdentityExists
+	}
+	id, err := generateIdentity(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	s.id = id
+	return id, nil
+}
+
+// Regenerate replaces the key with a freshly generated one (creating it if
+// absent). Note: the public key changes, so other machines that authorized the
+// old key must re-authorize the new one.
+func (s *IdentityStore) Regenerate() (*Identity, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, err := generateIdentity(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	s.id = id
+	return id, nil
+}
+
+// Delete removes the key so the instance has none until one is created again.
+func (s *IdentityStore) Delete() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := deleteIdentity(s.dir); err != nil {
+		return err
+	}
+	s.id = nil
+	return nil
 }
 
 // PublicKeyString returns the shareable serialized public key

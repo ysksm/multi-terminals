@@ -17,20 +17,25 @@ import (
 var _ port.TerminalRunner = (*Runner)(nil)
 var _ port.TerminalSession = (*wsSession)(nil)
 
+// CurrentIdentityFunc returns the instance's current signing identity and
+// whether one exists yet. IdentityStore.Current satisfies it directly.
+type CurrentIdentityFunc func() (*Identity, bool)
+
 // Runner is a port.TerminalRunner that starts terminal sessions on a remote
 // multi-terminals instance (identified by TerminalStartRequest.RemoteHost) by
 // dialing its remote-terminal WebSocket endpoint. The process runs on the
 // remote machine; output is streamed back over the connection.
 type Runner struct {
-	identity *Identity
-	dialer   *websocket.Dialer
+	current CurrentIdentityFunc
+	dialer  *websocket.Dialer
 }
 
-// NewRunner returns a Runner that authenticates with the given instance
-// identity: the remote host must have this identity's public key in its
-// authorized-keys list.
-func NewRunner(identity *Identity) *Runner {
-	return &Runner{identity: identity, dialer: websocket.DefaultDialer}
+// NewRunner returns a Runner that authenticates with the instance identity
+// returned by current at dial time: the remote host must have that identity's
+// public key in its authorized-keys list. Reading the identity lazily lets a
+// key created (or regenerated) after startup take effect without a restart.
+func NewRunner(current CurrentIdentityFunc) *Runner {
+	return &Runner{current: current, dialer: websocket.DefaultDialer}
 }
 
 // endpointURL converts a user-supplied host value into the WebSocket URL of
@@ -58,8 +63,12 @@ func endpointURL(host string) (string, error) {
 // this instance's key, requests a terminal session and returns a
 // port.TerminalSession bridged over the WebSocket connection.
 func (r *Runner) Start(ctx context.Context, req port.TerminalStartRequest) (port.TerminalSession, error) {
-	if r.identity == nil {
+	if r.current == nil {
 		return nil, fmt.Errorf("remote terminal: no instance identity configured")
+	}
+	identity, ok := r.current()
+	if !ok || identity == nil {
+		return nil, fmt.Errorf("remote terminal: this instance has no key yet — create one in 🔑 リモート設定 (この端末の鍵を作成) before connecting to another multi-terminals instance")
 	}
 	url, err := endpointURL(req.RemoteHost)
 	if err != nil {
@@ -100,8 +109,8 @@ func (r *Runner) Start(ctx context.Context, req port.TerminalStartRequest) (port
 	}
 	if err := s.writeCtl(controlMsg{
 		Type:      msgAuth,
-		PublicKey: r.identity.PublicKeyString(),
-		Signature: base64.StdEncoding.EncodeToString(r.identity.sign(nonce)),
+		PublicKey: identity.PublicKeyString(),
+		Signature: base64.StdEncoding.EncodeToString(identity.sign(nonce)),
 	}); err != nil {
 		ws.Close()
 		return nil, fmt.Errorf("remote terminal: send auth: %w", err)

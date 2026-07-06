@@ -51,11 +51,13 @@
 
   // リモート設定モーダル（自分の公開鍵表示・許可鍵の管理）
   let showRemoteSettings = $state(false)
-  let remoteIdentity = $state(null) // {publicKey, fingerprint}
+  let remoteIdentity = $state(null) // {exists, publicKey?, fingerprint?}
   let authorizedKeys = $state([]) // [{key, comment, fingerprint}]
   let newAuthKey = $state('')
   let newAuthComment = $state('')
   let copiedPubKey = $state(false)
+  let confirmingRegenerateKey = $state(false)
+  let confirmingDeleteKey = $state(false)
 
   // 削除確認
   let confirmingDeleteId = $state(null)
@@ -381,13 +383,39 @@
     })
   }
 
-  // リモート設定モーダルを開き、自分の公開鍵と許可鍵リストを読み込む。
+  // リモート設定モーダルを開き、自分の鍵の状態と許可鍵リストを読み込む。
   function openRemoteSettings() {
     showRemoteSettings = true
     copiedPubKey = false
+    confirmingRegenerateKey = false
+    confirmingDeleteKey = false
     guard(async () => {
       remoteIdentity = await api.remoteIdentity()
       await reloadAuthorizedKeys()
+    })
+  }
+  // この端末の鍵をユーザー操作で作成する（初回起動時の自動生成はしない）。
+  function createIdentity() {
+    guard(async () => {
+      remoteIdentity = await api.createIdentity()
+      copiedPubKey = false
+    })
+  }
+  // 鍵を再作成する（公開鍵が変わるため、他端末での再登録が必要）。
+  function regenerateIdentity() {
+    confirmingRegenerateKey = false
+    guard(async () => {
+      remoteIdentity = await api.regenerateIdentity()
+      copiedPubKey = false
+    })
+  }
+  // 鍵を削除する（再作成するまでリモート接続は不可）。
+  function deleteIdentity() {
+    confirmingDeleteKey = false
+    guard(async () => {
+      await api.deleteIdentity()
+      remoteIdentity = { exists: false }
+      copiedPubKey = false
     })
   }
   async function reloadAuthorizedKeys() {
@@ -743,16 +771,36 @@
           <button class="icon" title="閉じる" onclick={() => (showRemoteSettings = false)}>✕</button>
         </div>
 
-        <h3>この端末の公開鍵</h3>
-        <p class="muted remote-note">
-          初回起動時に自動生成された鍵です。他の端末で実行したいときは、この公開鍵を<strong>実行側（待ち受け側）</strong>の「許可された鍵」に追加してください。
-        </p>
-        {#if remoteIdentity}
+        <h3>この端末の鍵</h3>
+        {#if remoteIdentity && remoteIdentity.exists}
+          <p class="muted remote-note">
+            他の端末で実行したいときは、この公開鍵を<strong>実行側（待ち受け側）</strong>の「許可された鍵」に追加してください。
+          </p>
           <div class="pubkey-row">
             <input class="pubkey" readonly value={remoteIdentity.publicKey} onfocus={(e) => e.currentTarget.select()} />
             <button onclick={copyPublicKey}>{copiedPubKey ? '✓ コピー済み' : 'コピー'}</button>
           </div>
           <p class="muted remote-note">フィンガープリント: <code>{remoteIdentity.fingerprint}</code></p>
+          <div class="key-actions">
+            {#if confirmingRegenerateKey}
+              <span class="muted">再作成すると公開鍵が変わり、他端末の登録がやり直しになります。</span>
+              <button class="danger" onclick={regenerateIdentity} disabled={busy}>再作成する</button>
+              <button class="icon" onclick={() => (confirmingRegenerateKey = false)}>取消</button>
+            {:else if confirmingDeleteKey}
+              <span class="muted">削除すると他の multi-terminals へ接続できなくなります（再作成で復活）。</span>
+              <button class="danger" onclick={deleteIdentity} disabled={busy}>削除する</button>
+              <button class="icon" onclick={() => (confirmingDeleteKey = false)}>取消</button>
+            {:else}
+              <button onclick={() => (confirmingRegenerateKey = true)} disabled={busy}>再作成</button>
+              <button class="danger" onclick={() => (confirmingDeleteKey = true)} disabled={busy}>削除</button>
+            {/if}
+          </div>
+        {:else if remoteIdentity}
+          <p class="muted remote-note">
+            この端末にはまだ鍵がありません。他の multi-terminals へ<strong>接続する側</strong>として使うには鍵が必要です（自動生成はされません）。作成後、公開鍵を実行側の「許可された鍵」に追加してください。<br />
+            ※ <code>ssh://</code> でのリモート実行にはこの鍵は不要です。
+          </p>
+          <button class="primary" onclick={createIdentity} disabled={busy}>この端末の鍵を作成</button>
         {/if}
 
         <h3>許可された鍵（この端末での実行を許可）</h3>
