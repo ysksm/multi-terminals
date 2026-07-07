@@ -57,6 +57,11 @@ BIN="bin/multi-terminals"
 cmd_build() {
   # フロントエンドを本番ビルドし、サーバーバイナリに組み込んで単一の成果物を生成する。
   if [ -d "frontend" ]; then
+    if ! command -v npm >/dev/null 2>&1; then
+      echo "error: npm コマンドが見つかりません。Node.js 20 以上をインストールしてください。" >&2
+      echo "  https://nodejs.org/  または  brew install node" >&2
+      exit 1
+    fi
     if [ ! -d "frontend/node_modules" ]; then
       echo ">> (cd frontend && npm install)"
       (cd frontend && npm install)
@@ -146,6 +151,11 @@ cmd_frontend() {
     echo "frontend はまだ存在しません。" >&2
     exit 1
   fi
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "error: npm コマンドが見つかりません。Node.js 20 以上をインストールしてください。" >&2
+    echo "  https://nodejs.org/  または  brew install node" >&2
+    exit 1
+  fi
   if [ ! -d "frontend/node_modules" ]; then
     echo ">> (cd frontend && npm install)"
     (cd frontend && npm install)
@@ -159,13 +169,26 @@ cmd_wails() {
     echo "apps/wails はまだ存在しません（Wails アプリは今後の実装計画です）。" >&2
     exit 1
   fi
-  if ! command -v wails >/dev/null 2>&1; then
-    echo "error: wails コマンドが見つかりません。" >&2
-    echo "  go install github.com/wailsapp/wails/v2/cmd/wails@latest" >&2
-    exit 1
+  # PATH → $GOBIN → $(go env GOPATH)/bin の順で wails を探し、無ければ導入する
+  local wails=""
+  if command -v wails >/dev/null 2>&1; then
+    wails="$(command -v wails)"
+  elif [ -x "$(go env GOBIN 2>/dev/null)/wails" ]; then
+    wails="$(go env GOBIN)/wails"
+  elif [ -x "$(go env GOPATH 2>/dev/null)/bin/wails" ]; then
+    wails="$(go env GOPATH)/bin/wails"
+  else
+    echo ">> wails CLI 未導入のためインストールします"
+    echo ">> go install github.com/wailsapp/wails/v2/cmd/wails@latest"
+    go install github.com/wailsapp/wails/v2/cmd/wails@latest
+    wails="$(go env GOPATH)/bin/wails"
+    if [ ! -x "$wails" ]; then
+      echo "error: wails のインストールに失敗しました。scripts/init.sh を試してください。" >&2
+      exit 1
+    fi
   fi
-  echo ">> (cd apps/wails && wails dev)"
-  (cd apps/wails && wails dev "$@")
+  echo ">> (cd apps/wails && $wails dev)"
+  (cd apps/wails && "$wails" dev "$@")
 }
 
 cmd_help() {

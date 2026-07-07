@@ -39,6 +39,11 @@ PKG="./apps/web/cmd"
 # --- フロントエンドを本番ビルドしてサーバーバイナリに組み込む ---
 embed_frontend() {
   if [ -d "frontend" ]; then
+    if ! command -v npm >/dev/null 2>&1; then
+      echo "error: npm コマンドが見つかりません。Node.js 20 以上をインストールしてください。" >&2
+      echo "  https://nodejs.org/  または  brew install node" >&2
+      exit 1
+    fi
     if [ ! -d "frontend/node_modules" ]; then
       echo ">> (cd frontend && npm install)"
       (cd frontend && npm install)

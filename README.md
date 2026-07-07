@@ -25,6 +25,18 @@ frontend             … Svelte + xterm.js（/api を web へプロキシ）
 - Go 1.26+
 - Node.js 20+ / npm（フロントエンド開発時）
 
+## 初回セットアップ
+
+クローン直後は次を一度実行すると、Go モジュール・フロントエンド依存・wails CLI をまとめて導入します。
+
+```sh
+./scripts/init.sh            # 全部入り
+./scripts/init.sh --no-wails # デスクトップ版を使わない場合
+```
+
+実行しなくても、各ビルドスクリプト（`dev.sh build` / `build-all.sh` / `build-wails.sh`）が
+`npm install` や wails CLI の導入を初回に自動で行います。
+
 ## 開発起動（2プロセス）
 
 ブラウザ UI は Vite が配信し、`/api`（REST + WebSocket）を Go バックエンドへプロキシします。バックエンドとフロントの2つを起動してください。

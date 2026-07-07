@@ -57,19 +57,25 @@ resolve_wails() {
   return 1
 }
 
+# 初回ビルド対応: wails CLI が無ければ自動インストールする
+if ! resolve_wails; then
+  echo ">> wails CLI 未導入のためインストールします"
+  echo ">> go install github.com/wailsapp/wails/v2/cmd/wails@latest"
+  go install github.com/wailsapp/wails/v2/cmd/wails@latest
+fi
 if ! resolve_wails; then
   gopathbin="$(go env GOPATH 2>/dev/null)/bin"
   {
-    echo "error: wails コマンドが見つかりません。"
+    echo "error: wails コマンドが見つかりません（自動インストールにも失敗）。"
     echo ""
-    echo "  1) インストール:"
+    echo "  1) 手動インストール:"
     echo "       go install github.com/wailsapp/wails/v2/cmd/wails@latest"
     echo ""
     echo "  2) インストール先 ($gopathbin) を PATH に追加してください:"
     echo "       export PATH=\"\$PATH:$gopathbin\"        # bash/zsh"
     echo ""
     echo "  （このスクリプトは PATH に無くても $gopathbin / \$GOBIN を自動探索します。"
-    echo "   上記に wails が無い場合は 1) のインストールを実行してください。）"
+    echo "   まとめてセットアップするには scripts/init.sh を実行してください。）"
   } >&2
   exit 1
 fi
@@ -85,6 +91,11 @@ embed_frontend() {
   if [ ! -d "frontend" ]; then
     echo ">> frontend なし: UI 非組み込みでビルドします" >&2
     return 0
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "error: npm コマンドが見つかりません。Node.js 20 以上をインストールしてください。" >&2
+    echo "  https://nodejs.org/  または  brew install node" >&2
+    exit 1
   fi
   if [ ! -d "frontend/node_modules" ]; then
     echo ">> (cd frontend && npm install)"

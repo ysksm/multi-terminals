@@ -35,6 +35,11 @@ build_frontend() {
     echo ">> frontend なし: UI 非組み込みでビルドします"
     return 0
   fi
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "error: npm コマンドが見つかりません。Node.js 20 以上をインストールしてください。" >&2
+    echo "  https://nodejs.org/  または  brew install node" >&2
+    exit 1
+  fi
   if [ ! -d "frontend/node_modules" ]; then
     echo ">> (cd frontend && npm install)"
     (cd frontend && npm install)
@@ -99,10 +104,16 @@ resolve_wails() {
 
 # --- Wails デスクトップ版（実行 OS 向けのみ） ---
 build_wails() {
+  # 初回ビルド対応: wails CLI が無ければ自動インストールを試みる
   if ! resolve_wails; then
-    echo ">> [skip] wails CLI 未導入のため Wails ビルドをスキップします。" >&2
-    echo "   導入: go install github.com/wailsapp/wails/v2/cmd/wails@latest" >&2
-    echo "   インストール先 ($(go env GOPATH)/bin) を PATH に追加するか、再実行してください。" >&2
+    echo ">> wails CLI 未導入のためインストールします"
+    echo ">> go install github.com/wailsapp/wails/v2/cmd/wails@latest"
+    go install github.com/wailsapp/wails/v2/cmd/wails@latest || true
+  fi
+  if ! resolve_wails; then
+    echo ">> [skip] wails CLI を導入できなかったため Wails ビルドをスキップします。" >&2
+    echo "   手動導入: go install github.com/wailsapp/wails/v2/cmd/wails@latest" >&2
+    echo "   まとめてセットアップするには scripts/init.sh を実行してください。" >&2
     return 0
   fi
   case "$HOST_OS" in
