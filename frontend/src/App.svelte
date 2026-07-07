@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { api, LAYOUTS, layoutOf } from './lib/api.js'
   import Terminal from './lib/Terminal.svelte'
+  import GitMenu from './lib/GitMenu.svelte'
   import { neighborSlot } from './lib/paneNav.js'
   import { cycleWorkspaceId, workspaceIdAt } from './lib/workspaceNav.js'
   import { SHORTCUT_GROUPS, paneShortcutAction } from './lib/shortcuts.js'
@@ -28,6 +29,13 @@
 
   // ペイン毎の git 情報（paneId -> {isRepo, branch, dirty}）
   let paneGit = $state({})
+
+  // git メニューを開いているペイン(null = 閉)
+  let gitMenuPaneId = $state(null)
+
+  function toggleGitMenu(paneId) {
+    gitMenuPaneId = gitMenuPaneId === paneId ? null : paneId
+  }
 
   // ペインタイトルインライン編集
   let editingTitlePaneId = $state(null)
@@ -282,16 +290,17 @@
       if (id !== current?.id) select(id)
       return
     }
-    // Ctrl+Shift+Z/F/V/G: アクティブペインの最大化 / Finder / VS Code / リモート
+    // Ctrl+Shift+Z/F/V/G/B: アクティブペインの最大化 / Finder / VS Code / リモート / git メニュー
     const paneAction = paneShortcutAction(e)
     if (paneAction) {
       const pane = current?.panes?.find((p) => p.id === activePaneId) || current?.panes?.[0]
       if (!pane) return
-      // リポジトリでないペインでは 🌐 ボタン非表示と同様に無視する
-      if (paneAction === 'github' && !paneGit[pane.id]?.isRepo) return
+      // リポジトリでないペインでは 🌐 ボタン・git バッジ非表示と同様に無視する
+      if ((paneAction === 'github' || paneAction === 'gitmenu') && !paneGit[pane.id]?.isRepo) return
       e.preventDefault()
       e.stopPropagation()
       if (paneAction === 'maximize') toggleMaximize(maximized || pane.id)
+      else if (paneAction === 'gitmenu') toggleGitMenu(pane.id)
       else openPaneIn(pane.id, paneAction)
       return
     }
@@ -604,11 +613,25 @@
                   <span class="remote-badge" title="リモート実行: {cell.pane.remoteHost}">🖥 {cell.pane.remoteHost}</span>
                 {/if}
                 {#if paneGit[cell.pane.id]?.isRepo}
-                  <span
-                    class="git-badge"
-                    class:dirty={paneGit[cell.pane.id].dirty}
-                    title={paneGit[cell.pane.id].dirty ? '未コミットの変更あり' : 'クリーン'}
-                  >⎇ {paneGit[cell.pane.id].branch}{paneGit[cell.pane.id].dirty ? '*' : ''}</span>
+                  <span class="git-wrap">
+                    <span
+                      class="git-badge"
+                      class:dirty={paneGit[cell.pane.id].dirty}
+                      title={paneGit[cell.pane.id].dirty ? '未コミットの変更あり(クリックで git メニュー)' : 'クリックで git メニュー'}
+                      role="button"
+                      tabindex="0"
+                      onclick={(e) => { e.stopPropagation(); toggleGitMenu(cell.pane.id) }}
+                      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGitMenu(cell.pane.id) } }}
+                    >⎇ {paneGit[cell.pane.id].branch}{paneGit[cell.pane.id].dirty ? '*' : ''}</span>
+                    {#if gitMenuPaneId === cell.pane.id}
+                      <GitMenu
+                        workspaceId={current.id}
+                        paneId={cell.pane.id}
+                        onClose={() => (gitMenuPaneId = null)}
+                        onChanged={refreshGitInfo}
+                      />
+                    {/if}
+                  </span>
                 {/if}
                 <span class="cell-actions">
                   <button class="icon" title="Finderで開く" onclick={() => openPaneIn(cell.pane.id, 'finder')}>📁</button>
