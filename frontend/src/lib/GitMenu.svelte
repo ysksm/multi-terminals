@@ -101,8 +101,10 @@
 
 <svelte:window onclick={onWindowClick} />
 
+<!-- 画面中央のモーダル。背景(バックドロップ)クリックは root 外なので onWindowClick で閉じる。 -->
+<div class="git-backdrop"></div>
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div class="git-menu" bind:this={root} tabindex="-1" onkeydown={onKeydown} role="menu">
+<div class="git-menu" bind:this={root} tabindex="-1" onkeydown={onKeydown} role="dialog" aria-modal="true">
   <div class="ops">
     <button onclick={() => runOp('pull')} disabled={!!running}>
       {running === 'pull' ? '…' : '⬇'} Pull
@@ -158,18 +160,28 @@
 </div>
 
 <style>
+  .git-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.5);
+  }
   .git-menu {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    z-index: 30;
-    min-width: 450px;
-    max-width: 780px;
-    padding: 9px;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 41;
+    width: 640px;
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 64px);
+    display: flex;
+    flex-direction: column;
+    padding: 16px;
     background: var(--panel-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+    border-radius: 8px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
     outline: none;
   }
   .filter {
@@ -205,7 +217,8 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    max-height: 330px;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
   }
   .branch {
