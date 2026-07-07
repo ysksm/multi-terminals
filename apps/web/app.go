@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/ysksm/multi-terminals/core/application/agentstatus"
 	"github.com/ysksm/multi-terminals/core/application/command"
 	"github.com/ysksm/multi-terminals/core/application/port"
 	"github.com/ysksm/multi-terminals/core/application/query"
 	"github.com/ysksm/multi-terminals/core/application/session"
 	"github.com/ysksm/multi-terminals/core/infrastructure/gitcli"
 	"github.com/ysksm/multi-terminals/core/infrastructure/jsonstore"
+	"github.com/ysksm/multi-terminals/core/infrastructure/procscan"
 	"github.com/ysksm/multi-terminals/core/infrastructure/remoteterm"
 	"github.com/ysksm/multi-terminals/core/infrastructure/sysopen"
 	"github.com/ysksm/multi-terminals/core/infrastructure/terminal"
@@ -71,6 +73,11 @@ func BuildDeps(baseDir string) (Deps, error) {
 		remoteterm.NewSSHRunner(),
 	)
 
+	// エージェント稼働状況(claude/codex)の監視。プロセスのライフサイクルは
+	// サーバと同じでよいので Stop は呼ばない。
+	watcher := agentstatus.NewWatcher(registrySource(reg), procscan.Snapshot, 0)
+	watcher.Start()
+
 	return Deps{
 		Create:              command.NewCreateWorkspaceHandler(repo, idgen),
 		Rename:              command.NewRenameWorkspaceHandler(repo),
@@ -99,6 +106,7 @@ func BuildDeps(baseDir string) (Deps, error) {
 		ClosePane:           command.NewClosePaneHandler(reg),
 		DeleteWorkspace:     command.NewDeleteWorkspaceHandler(repo, reg),
 		Registry:            reg,
+		AgentStatus:         watcher,
 		RemoteTerminal:      remoteterm.Handler(localRunner, authKeys),
 		RemoteIdentityStore: identityStore,
 		RemoteAuthKeys:      authKeys,

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/ysksm/multi-terminals/core/application/agentstatus"
 	"github.com/ysksm/multi-terminals/core/application/apperr"
 	"github.com/ysksm/multi-terminals/core/application/command"
 	"github.com/ysksm/multi-terminals/core/application/query"
@@ -44,6 +45,9 @@ type Deps struct {
 	ClosePane       *command.ClosePaneHandler
 	DeleteWorkspace *command.DeleteWorkspaceHandler
 	Registry        *session.Registry
+	// AgentStatus watches panes for running agent CLIs (claude/codex).
+	// Nil disables the /api/agent-status endpoints.
+	AgentStatus *agentstatus.Watcher
 	// RemoteTerminal serves the remote-execution WebSocket endpoint
 	// (remoteterm.Handler). Nil disables the endpoint entirely.
 	RemoteTerminal http.HandlerFunc
@@ -96,6 +100,12 @@ func NewMux(d Deps) *http.ServeMux {
 
 	// Session list (live pane IDs for resume)
 	mux.HandleFunc("GET /api/sessions", d.handleListSessions)
+
+	// Agent status (claude/codex activity per pane)
+	if d.AgentStatus != nil {
+		mux.HandleFunc("GET /api/agent-status", d.handleAgentStatus)
+		mux.HandleFunc("GET /api/agent-status/stream", d.handleAgentStatusStream)
+	}
 
 	// WebSocket pane I/O
 	mux.HandleFunc("GET /api/panes/{paneId}/io", d.handlePaneIO)
