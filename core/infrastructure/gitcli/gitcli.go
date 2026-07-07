@@ -3,11 +3,13 @@ package gitcli
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ysksm/multi-terminals/core/application/port"
 )
@@ -100,3 +102,102 @@ func (s *Service) Clone(url, dest string) (string, error) {
 	}
 	return expanded, nil
 }
+
+// splitLines は出力を行に分割し、空行を除いて返す。
+func splitLines(out string) []string {
+	var lines []string
+	for _, l := range strings.Split(out, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
+}
+
+// Branches はローカル + リモート追跡ブランチを返す。ローカルと同名の
+// リモートブランチはローカル優先で重複除去する。
+func (s *Service) Branches(dir string) ([]port.BranchInfo, error) {
+	// detached HEAD では current は空のまま(どの行も IsCurrent=false)
+	current, _ := git(dir, "symbolic-ref", "--short", "-q", "HEAD")
+
+	localOut, err := git(dir, "branch", "--format=%(refname:short)")
+	if err != nil {
+		return nil, fmt.Errorf("gitcli: branch: %w", err)
+	}
+	remoteOut, err := git(dir, "branch", "-r", "--format=%(refname:short)")
+	if err != nil {
+		return nil, fmt.Errorf("gitcli: branch -r: %w", err)
+	}
+
+	var branches []port.BranchInfo
+	seen := map[string]bool{}
+	for _, name := range splitLines(localOut) {
+		// detached HEAD の擬似エントリ "(HEAD detached at ...)" は除外
+		if strings.HasPrefix(name, "(") {
+			continue
+		}
+		seen[name] = true
+		branches = append(branches, port.BranchInfo{Name: name, IsCurrent: name == current})
+	}
+	for _, ref := range splitLines(remoteOut) {
+		// スラッシュを含まない ref はリモートの symbolic HEAD なので除外
+		// (%(refname:short) は origin/HEAD を裸のリモート名 "origin" で出力する)
+		slash := strings.Index(ref, "/")
+		if slash < 0 {
+			continue
+		}
+		name := ref[slash+1:]
+		// git のバージョン差で origin/HEAD が "origin/HEAD" のまま出力された場合に備え、
+		// symbolic HEAD を明示的に除外する
+		if name == "HEAD" {
+			continue
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		branches = append(branches, port.BranchInfo{Name: name, IsRemote: true})
+	}
+	return branches, nil
+}
+
+// Checkout は branch に切り替える。リモートのみのブランチは git switch が
+// 追跡ブランチを自動作成する。
+// branch は HTTP body 由来の外部入力のため、"--" でオプション区切りを固定し
+// "-c..." のようなダッシュ始まりの値が git オプションとして解釈されるのを防ぐ。
+func (s *Service) Checkout(dir, branch string) error {
+	if _, err := git(dir, "switch", "--", branch); err != nil {
+		return fmt.Errorf("gitcli: switch: %w", err)
+	}
+	return nil
+}
+
+// netTimeout はネットワークを伴う git 操作の上限時間。
+const netTimeout = 60 * time.Second
+
+// gitNet は認証プロンプト無効(GIT_TERMINAL_PROMPT=0)・タイムアウト付きで
+// git を実行する。pull/push/fetch などリモートと通信する操作に使う。
+func gitNet(dir string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), netTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	var errBuf bytes.Buffer
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("git %s: %v でタイムアウトしました", args[0], netTimeout)
+		}
+		return fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(errBuf.String()))
+	}
+	return nil
+}
+
+// Pull は現在ブランチを pull する。
+func (s *Service) Pull(dir string) error { return gitNet(dir, "pull") }
+
+// Push は現在ブランチを push する。
+func (s *Service) Push(dir string) error { return gitNet(dir, "push") }
+
+// Fetch は全リモートを fetch --prune する。
+func (s *Service) Fetch(dir string) error { return gitNet(dir, "fetch", "--prune") }

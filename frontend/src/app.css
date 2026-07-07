@@ -298,6 +298,10 @@ kbd {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.git-wrap {
+  position: relative;
+  display: inline-block;
+}
 .cell-head .git-badge {
   flex-shrink: 0;
   font-size: 11px;
@@ -307,6 +311,7 @@ kbd {
   border-radius: 8px;
   padding: 0 6px;
   white-space: nowrap;
+  cursor: pointer;
 }
 .cell-head .git-badge.dirty {
   color: #e2b93d;
