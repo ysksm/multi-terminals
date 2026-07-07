@@ -139,6 +139,24 @@ textarea {
   padding: 0 3px;
   flex-shrink: 0;
 }
+/* エージェント(claude/codex)稼働状況バッジ: ● 実行中 / ⏸ 許可待ち */
+.list .agent-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 5px;
+  flex-shrink: 0;
+}
+.list .agent-st.active {
+  color: #4caf50;
+}
+.list .agent-st.wait {
+  color: #ffb300;
+}
 
 /* ---- Keyboard shortcuts help ---- */
 kbd {

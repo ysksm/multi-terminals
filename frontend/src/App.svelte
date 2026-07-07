@@ -6,8 +6,11 @@
   import { neighborSlot } from './lib/paneNav.js'
   import { cycleWorkspaceId, workspaceIdAt } from './lib/workspaceNav.js'
   import { SHORTCUT_GROUPS, paneShortcutAction } from './lib/shortcuts.js'
+  import { aggregateByWorkspace, connectAgentStatus } from './lib/agentStatus.js'
 
   let workspaces = $state([])
+  let agentPanes = $state({}) // paneId → [{tool, state}]（サーバから push）
+  const agentByWs = $derived(aggregateByWorkspace(agentPanes, workspaces))
   let current = $state(null) // 選択中の WorkspaceDTO
   let openedPaneIds = $state(new Set()) // ライブセッションを持つ pane
   let error = $state('')
@@ -486,7 +489,11 @@
       }
     })
     window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
+    const stopAgentStatus = connectAgentStatus((p) => (agentPanes = p))
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      stopAgentStatus()
+    }
   })
 
   // 表示するスロット一覧（最大化中はそのペインのみ）
@@ -530,6 +537,15 @@
             <button class="ws-select" class:active={current?.id === w.id} onclick={() => select(w.id)}>
               {#if i < 9}<span class="ws-key" title="⌘{i + 1} で切替">⌘{i + 1}</span>{/if}
               <span class="name">{w.name}</span>
+              {#if agentByWs.get(w.id)}
+                {#each agentByWs.get(w.id) as a (a.tool)}
+                  <span class="agent-badge" title="{a.tool}: 実行中 {a.active} / 許可待ち {a.wait}">
+                    {a.tool}
+                    {#if a.active > 0}<span class="agent-st active">●{a.active}</span>{/if}
+                    {#if a.wait > 0}<span class="agent-st wait">⏸{a.wait}</span>{/if}
+                  </span>
+                {/each}
+              {/if}
               <span class="badge">{layoutOf(w.layout).label}</span>
             </button>
             {#if confirmingDeleteId === w.id}
