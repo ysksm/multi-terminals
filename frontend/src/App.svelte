@@ -621,7 +621,7 @@
                       role="button"
                       tabindex="0"
                       onclick={(e) => { e.stopPropagation(); toggleGitMenu(cell.pane.id) }}
-                      onkeydown={(e) => { if (e.key === 'Enter') toggleGitMenu(cell.pane.id) }}
+                      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGitMenu(cell.pane.id) } }}
                     >⎇ {paneGit[cell.pane.id].branch}{paneGit[cell.pane.id].dirty ? '*' : ''}</span>
                     {#if gitMenuPaneId === cell.pane.id}
                       <GitMenu

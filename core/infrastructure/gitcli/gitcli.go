@@ -147,6 +147,11 @@ func (s *Service) Branches(dir string) ([]port.BranchInfo, error) {
 			continue
 		}
 		name := ref[slash+1:]
+		// git のバージョン差で origin/HEAD が "origin/HEAD" のまま出力された場合に備え、
+		// symbolic HEAD を明示的に除外する
+		if name == "HEAD" {
+			continue
+		}
 		if seen[name] {
 			continue
 		}

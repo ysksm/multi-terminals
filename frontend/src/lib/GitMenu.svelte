@@ -102,9 +102,17 @@
 <svelte:window onclick={onWindowClick} />
 
 <!-- 画面中央のモーダル。背景(バックドロップ)クリックは root 外なので onWindowClick で閉じる。 -->
-<div class="git-backdrop"></div>
+<div class="git-backdrop" aria-hidden="true"></div>
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div class="git-menu" bind:this={root} tabindex="-1" onkeydown={onKeydown} role="dialog" aria-modal="true">
+<div
+  class="git-menu"
+  bind:this={root}
+  tabindex="-1"
+  onkeydown={onKeydown}
+  role="dialog"
+  aria-modal="true"
+  aria-label="git 操作メニュー"
+>
   <div class="ops">
     <button onclick={() => runOp('pull')} disabled={!!running}>
       {running === 'pull' ? '…' : '⬇'} Pull

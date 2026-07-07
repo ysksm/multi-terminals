@@ -20,7 +20,7 @@ export const SHORTCUT_GROUPS = [
       { keys: ['Ctrl', 'Shift', 'F'], desc: 'アクティブペインを Finder で開く' },
       { keys: ['Ctrl', 'Shift', 'V'], desc: 'アクティブペインを VS Code で開く' },
       { keys: ['Ctrl', 'Shift', 'G'], desc: 'リモート (GitHub) を開く（リポジトリのみ）' },
-      { keys: ['Ctrl', 'Shift', 'B'], desc: 'git メニューを開閉（リポジトリのみ。P/U/F=pull/push/fetch、↑↓+Enter=ブランチ切替）' },
+      { keys: ['Ctrl', 'Shift', 'B'], desc: 'git メニューを開閉（リポジトリのみ。↑↓+Enter=ブランチ切替。P/U/F=pull/push/fetch ※絞り込み入力中は絞り込み文字として扱う）' },
     ],
   },
   {
