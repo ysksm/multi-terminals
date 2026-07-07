@@ -80,8 +80,9 @@ func TestEndToEndRemoteExecution(t *testing.T) {
 		return out
 	}
 
-	// 1. key exchange: fetch A's auto-generated public key, authorize it on B.
-	identityA := getJSON(srvA.URL, "/api/remote/identity")
+	// 1. key exchange: A has no key until the user creates one; create it, then
+	// authorize A's public key on B.
+	identityA := postJSON(srvA.URL, "/api/remote/identity", nil)
 	pubA, _ := identityA["publicKey"].(string)
 	if pubA == "" {
 		t.Fatalf("no publicKey in identity response: %v", identityA)
@@ -199,6 +200,12 @@ func TestEndToEndRemoteExecutionRejectedWithoutAuthorization(t *testing.T) {
 		out := map[string]any{}
 		_ = json.NewDecoder(resp.Body).Decode(&out)
 		return resp, out
+	}
+
+	// A creates its key so the failure below is genuinely B's authorization
+	// rejection, not A simply having no key.
+	if resp, body := postJSON(srvA.URL, "/api/remote/identity", nil); resp.StatusCode >= 300 {
+		t.Fatalf("create A identity: status %d (%v)", resp.StatusCode, body)
 	}
 
 	_, ws := postJSON(srvA.URL, "/api/workspaces", map[string]any{"name": "e2e-denied", "layout": "single"})

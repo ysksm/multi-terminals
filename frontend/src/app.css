@@ -331,6 +331,18 @@ kbd {
   font-family: monospace;
   font-size: 12px;
 }
+.remote-modal .key-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+.remote-modal .key-actions .muted {
+  flex: 1;
+  min-width: 12ch;
+  font-size: 12px;
+}
 .remote-modal .auth-keys {
   list-style: none;
   margin: 0 0 8px;

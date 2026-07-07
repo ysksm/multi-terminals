@@ -26,6 +26,11 @@ func newIdentity(t *testing.T) *Identity {
 	return id
 }
 
+// staticIdentity adapts a fixed identity to the provider NewRunner expects.
+func staticIdentity(id *Identity) CurrentIdentityFunc {
+	return func() (*Identity, bool) { return id, id != nil }
+}
+
 // newAuthKeys returns an AuthorizedKeys store authorizing the given keys.
 func newAuthKeys(t *testing.T, authorized ...*Identity) *AuthorizedKeys {
 	t.Helper()
@@ -51,7 +56,7 @@ func newTestServer(t *testing.T, authorized ...*Identity) (*httptest.Server, *ap
 // startRemote dials the test server and starts a remote session.
 func startRemote(t *testing.T, srv *httptest.Server, id *Identity, sessionID string) port.TerminalSession {
 	t.Helper()
-	r := NewRunner(id)
+	r := NewRunner(staticIdentity(id))
 	sess, err := r.Start(context.Background(), port.TerminalStartRequest{
 		SessionID:  sessionID,
 		Dir:        "/tmp",
@@ -171,7 +176,7 @@ func TestRemoteSession_RemoteExitEndsLocalSession(t *testing.T) {
 
 func TestHandler_DisabledWithoutAuthorizedKeys(t *testing.T) {
 	srv, _ := newTestServer(t) // no keys authorized
-	r := NewRunner(newIdentity(t))
+	r := NewRunner(staticIdentity(newIdentity(t)))
 	_, err := r.Start(context.Background(), port.TerminalStartRequest{
 		SessionID: "p", RemoteHost: srv.URL,
 	})
@@ -188,7 +193,7 @@ func TestHandler_RejectsUnauthorizedKey(t *testing.T) {
 	srv, runner := newTestServer(t, authorized)
 
 	intruder := newIdentity(t) // valid keypair, but not in the authorized list
-	r := NewRunner(intruder)
+	r := NewRunner(staticIdentity(intruder))
 	_, err := r.Start(context.Background(), port.TerminalStartRequest{
 		SessionID: "p", RemoteHost: srv.URL,
 	})
@@ -211,7 +216,7 @@ func TestHandler_RejectsBadSignature(t *testing.T) {
 
 	forger := newIdentity(t)
 	forger.pub = authorized.pub // claim the authorized identity, keep own private key
-	r := NewRunner(forger)
+	r := NewRunner(staticIdentity(forger))
 	_, err := r.Start(context.Background(), port.TerminalStartRequest{
 		SessionID: "p", RemoteHost: srv.URL,
 	})
@@ -230,7 +235,7 @@ func TestHandler_StartErrorIsReturnedToCaller(t *testing.T) {
 	srv := httptest.NewServer(Handler(runner, newAuthKeys(t, id)))
 	defer srv.Close()
 
-	r := NewRunner(id)
+	r := NewRunner(staticIdentity(id))
 	_, err := r.Start(context.Background(), port.TerminalStartRequest{
 		SessionID: "p", RemoteHost: srv.URL,
 	})
@@ -281,6 +286,75 @@ func TestLoadOrCreateIdentity_GeneratesAndReloads(t *testing.T) {
 	}
 }
 
+func TestRunner_NoIdentityYet(t *testing.T) {
+	// A Runner whose provider reports no key must refuse to dial with a clear
+	// error, rather than panicking or sending an empty key.
+	r := NewRunner(func() (*Identity, bool) { return nil, false })
+	_, err := r.Start(context.Background(), port.TerminalStartRequest{
+		SessionID: "p", RemoteHost: "other:8080",
+	})
+	if err == nil || !strings.Contains(err.Error(), "no key") {
+		t.Errorf("error = %v, want a 'no key' message", err)
+	}
+}
+
+func TestIdentityStore_Lifecycle(t *testing.T) {
+	dir := t.TempDir()
+
+	store, err := NewIdentityStore(dir)
+	if err != nil {
+		t.Fatalf("NewIdentityStore: %v", err)
+	}
+	// Fresh install: no key exists until the user creates one.
+	if _, ok := store.Current(); ok {
+		t.Fatal("a fresh store must have no identity")
+	}
+
+	// Generate creates the key.
+	id1, err := store.Generate()
+	if err != nil {
+		t.Fatalf("Generate: %v", err)
+	}
+	cur, ok := store.Current()
+	if !ok || cur.PublicKeyString() != id1.PublicKeyString() {
+		t.Fatalf("Current after Generate = (%v, %v), want the generated key", cur, ok)
+	}
+
+	// Generate again must not silently overwrite.
+	if _, err := store.Generate(); !errors.Is(err, ErrIdentityExists) {
+		t.Errorf("second Generate error = %v, want ErrIdentityExists", err)
+	}
+
+	// Regenerate replaces the key with a different one.
+	id2, err := store.Regenerate()
+	if err != nil {
+		t.Fatalf("Regenerate: %v", err)
+	}
+	if id2.PublicKeyString() == id1.PublicKeyString() {
+		t.Error("Regenerate must produce a new key")
+	}
+
+	// A new store over the same dir must load the regenerated key from disk.
+	reloaded, err := NewIdentityStore(dir)
+	if err != nil {
+		t.Fatalf("NewIdentityStore (reload): %v", err)
+	}
+	if cur, ok := reloaded.Current(); !ok || cur.PublicKeyString() != id2.PublicKeyString() {
+		t.Errorf("reloaded key = (%v, %v), want the regenerated key", cur, ok)
+	}
+
+	// Delete removes the key and the files.
+	if err := store.Delete(); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, ok := store.Current(); ok {
+		t.Error("Current after Delete must report no identity")
+	}
+	if _, err := os.Stat(filepath.Join(dir, PrivateKeyFile)); !os.IsNotExist(err) {
+		t.Errorf("private key file must be gone after Delete, stat err = %v", err)
+	}
+}
+
 func TestAuthorizedKeys_AddListRemove(t *testing.T) {
 	a := NewAuthorizedKeys(filepath.Join(t.TempDir(), AuthorizedKeysFile))
 	if a.Enabled() {
@@ -323,20 +397,27 @@ func TestAuthorizedKeys_AddListRemove(t *testing.T) {
 
 func TestDispatchRunner_RoutesByRemoteHost(t *testing.T) {
 	local := apptest.NewFakeTerminalRunner()
-	remote := apptest.NewFakeTerminalRunner()
-	d := NewDispatchRunner(local, remote)
+	ws := apptest.NewFakeTerminalRunner()
+	sshR := apptest.NewFakeTerminalRunner()
+	d := NewDispatchRunner(local, ws, sshR)
 
 	if _, err := d.Start(context.Background(), port.TerminalStartRequest{SessionID: "a"}); err != nil {
 		t.Fatalf("local Start: %v", err)
 	}
 	if _, err := d.Start(context.Background(), port.TerminalStartRequest{SessionID: "b", RemoteHost: "other:8080"}); err != nil {
-		t.Fatalf("remote Start: %v", err)
+		t.Fatalf("ws Start: %v", err)
+	}
+	if _, err := d.Start(context.Background(), port.TerminalStartRequest{SessionID: "c", RemoteHost: "ssh://user@host:22"}); err != nil {
+		t.Fatalf("ssh Start: %v", err)
 	}
 	if len(local.Started) != 1 || local.Started[0].SessionID != "a" {
 		t.Errorf("local runner got %+v", local.Started)
 	}
-	if len(remote.Started) != 1 || remote.Started[0].SessionID != "b" {
-		t.Errorf("remote runner got %+v", remote.Started)
+	if len(ws.Started) != 1 || ws.Started[0].SessionID != "b" {
+		t.Errorf("ws runner got %+v", ws.Started)
+	}
+	if len(sshR.Started) != 1 || sshR.Started[0].SessionID != "c" {
+		t.Errorf("ssh runner got %+v", sshR.Started)
 	}
 }
 

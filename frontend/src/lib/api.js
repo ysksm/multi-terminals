@@ -55,6 +55,9 @@ export const api = {
   deleteWorkspace: (id) => req('DELETE', `/api/workspaces/${id}`),
   // リモート実行の鍵管理
   remoteIdentity: () => req('GET', '/api/remote/identity'),
+  createIdentity: () => req('POST', '/api/remote/identity'),
+  regenerateIdentity: () => req('POST', '/api/remote/identity/regenerate'),
+  deleteIdentity: () => req('DELETE', '/api/remote/identity'),
   listAuthorizedKeys: () => req('GET', '/api/remote/authorized-keys'),
   addAuthorizedKey: (key, comment) => req('POST', '/api/remote/authorized-keys', { key, comment }),
   removeAuthorizedKey: (key) => req('DELETE', `/api/remote/authorized-keys?key=${encodeURIComponent(key)}`),

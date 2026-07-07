@@ -47,52 +47,60 @@ func BuildDeps(baseDir string) (Deps, error) {
 	idgen := &uuidIDGen{}
 	git := gitcli.New()
 
-	// Remote execution key material: an auto-generated Ed25519 instance
-	// identity (used to authenticate to other instances) and the list of
-	// public keys allowed to run terminals on this machine. Remote listening
-	// stays disabled until at least one key is authorized.
-	identity, err := remoteterm.LoadOrCreateIdentity(baseDir)
+	// Remote execution key material: the instance's Ed25519 identity (used to
+	// authenticate to other instances) is created on demand by the user, not
+	// auto-generated on startup, so a fresh install exposes no key until the
+	// user asks for one. authKeys is the list of public keys allowed to run
+	// terminals on this machine; remote listening stays disabled until at least
+	// one key is authorized.
+	identityStore, err := remoteterm.NewIdentityStore(baseDir)
 	if err != nil {
 		return Deps{}, fmt.Errorf("BuildDeps: remote identity: %w", err)
 	}
 	authKeys := remoteterm.NewAuthorizedKeys(filepath.Join(baseDir, remoteterm.AuthorizedKeysFile))
 
-	// Terminal runners: local PTY plus remote dial-out, dispatched per pane by
-	// RemoteHost. The remote-terminal endpoint always executes with the local
-	// runner — a serving instance is the execution target, never a relay.
+	// Terminal runners: local PTY plus two remote transports, dispatched per
+	// pane by RemoteHost. An "ssh://…" host connects to an ordinary sshd; any
+	// other non-empty host connects to another multi-terminals instance's
+	// WebSocket endpoint. The remote-terminal endpoint always executes with the
+	// local runner — a serving instance is the execution target, never a relay.
 	localRunner := terminal.NewRunner()
-	runner := remoteterm.NewDispatchRunner(localRunner, remoteterm.NewRunner(identity))
+	runner := remoteterm.NewDispatchRunner(
+		localRunner,
+		remoteterm.NewRunner(identityStore.Current),
+		remoteterm.NewSSHRunner(),
+	)
 
 	return Deps{
-		Create:          command.NewCreateWorkspaceHandler(repo, idgen),
-		Rename:          command.NewRenameWorkspaceHandler(repo),
-		ChangeLayout:    command.NewChangeLayoutHandler(repo),
-		Maximize:        command.NewMaximizePaneHandler(repo),
-		Restore:         command.NewRestoreLayoutHandler(repo),
-		SetLastActive:   command.NewSetLastActivePaneHandler(repo),
-		Get:             query.NewGetWorkspaceHandler(repo),
-		List:            query.NewListWorkspacesHandler(repo),
-		GetLastOpened:   query.NewGetLastOpenedWorkspaceHandler(state, repo),
-		AddPane:         command.NewAddPaneHandler(repo, idgen),
-		RemovePane:      command.NewRemovePaneHandler(repo),
-		SetDir:          command.NewSetPaneDirectoryHandler(repo),
-		SetTitle:        command.NewSetPaneTitleHandler(repo),
-		SetRemoteHost:   command.NewSetPaneRemoteHostHandler(repo),
-		SetCmds:         command.NewSetPaneStartupCommandsHandler(repo),
-		OpenIn:          command.NewOpenPaneInHandler(repo, sysopen.New(), git),
-		CloneRepo:       command.NewCloneRepositoryHandler(git),
-		GetPaneGit:      query.NewGetPaneGitInfoHandler(repo, git),
-		GitBranches:     query.NewListPaneBranchesHandler(repo, git),
-		GitCheckout:     command.NewCheckoutPaneBranchHandler(repo, git),
-		GitOp:           command.NewRunPaneGitOpHandler(repo, git),
-		Open:            command.NewOpenWorkspaceHandler(repo, runner, reg, state, ""),
-		Write:           command.NewWriteToPaneHandler(reg),
-		Resize:          command.NewResizePaneHandler(reg),
-		ClosePane:       command.NewClosePaneHandler(reg),
-		DeleteWorkspace: command.NewDeleteWorkspaceHandler(repo, reg),
-		Registry:        reg,
-		RemoteTerminal:  remoteterm.Handler(localRunner, authKeys),
-		RemoteIdentity:  identity,
-		RemoteAuthKeys:  authKeys,
+		Create:              command.NewCreateWorkspaceHandler(repo, idgen),
+		Rename:              command.NewRenameWorkspaceHandler(repo),
+		ChangeLayout:        command.NewChangeLayoutHandler(repo),
+		Maximize:            command.NewMaximizePaneHandler(repo),
+		Restore:             command.NewRestoreLayoutHandler(repo),
+		SetLastActive:       command.NewSetLastActivePaneHandler(repo),
+		Get:                 query.NewGetWorkspaceHandler(repo),
+		List:                query.NewListWorkspacesHandler(repo),
+		GetLastOpened:       query.NewGetLastOpenedWorkspaceHandler(state, repo),
+		AddPane:             command.NewAddPaneHandler(repo, idgen),
+		RemovePane:          command.NewRemovePaneHandler(repo),
+		SetDir:              command.NewSetPaneDirectoryHandler(repo),
+		SetTitle:            command.NewSetPaneTitleHandler(repo),
+		SetRemoteHost:       command.NewSetPaneRemoteHostHandler(repo),
+		SetCmds:             command.NewSetPaneStartupCommandsHandler(repo),
+		OpenIn:              command.NewOpenPaneInHandler(repo, sysopen.New(), git),
+		CloneRepo:           command.NewCloneRepositoryHandler(git),
+		GetPaneGit:          query.NewGetPaneGitInfoHandler(repo, git),
+		GitBranches:         query.NewListPaneBranchesHandler(repo, git),
+		GitCheckout:         command.NewCheckoutPaneBranchHandler(repo, git),
+		GitOp:               command.NewRunPaneGitOpHandler(repo, git),
+		Open:                command.NewOpenWorkspaceHandler(repo, runner, reg, state, ""),
+		Write:               command.NewWriteToPaneHandler(reg),
+		Resize:              command.NewResizePaneHandler(reg),
+		ClosePane:           command.NewClosePaneHandler(reg),
+		DeleteWorkspace:     command.NewDeleteWorkspaceHandler(repo, reg),
+		Registry:            reg,
+		RemoteTerminal:      remoteterm.Handler(localRunner, authKeys),
+		RemoteIdentityStore: identityStore,
+		RemoteAuthKeys:      authKeys,
 	}, nil
 }
