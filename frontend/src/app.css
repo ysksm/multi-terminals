@@ -433,6 +433,16 @@ kbd {
   color: var(--muted);
   font-size: 14px;
 }
+.empty-slot-actions {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.empty-slot-actions .empty-slot {
+  flex: 1;
+  min-height: 0;
+}
 .add-form {
   padding: 12px;
   display: flex;

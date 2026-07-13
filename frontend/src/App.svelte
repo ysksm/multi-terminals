@@ -73,6 +73,10 @@
   // アクティブペイン
   let activePaneId = $state(null)
 
+  // コピーしたペイン設定。端末セッションや画面出力ではなく、次の新規ペインに
+  // 必要な永続設定だけを保持する。
+  let copiedPaneConfig = $state(null)
+
   const layout = $derived(current ? layoutOf(current.layout) : layoutOf('single'))
   const maximized = $derived(current?.maximizedPaneId || null)
 
@@ -226,6 +230,32 @@
       openedPaneIds.delete(paneId)
       openedPaneIds = new Set(openedPaneIds)
       await reloadCurrent()
+    })
+  }
+
+  function copyPaneConfig(pane) {
+    copiedPaneConfig = {
+      directory: pane.directory,
+      title: pane.title || '',
+      remoteHost: pane.remoteHost || '',
+      // コピー元の編集で配列を変更しても影響しないように複製する。
+      commands: (pane.commands || []).map((command) => ({ ...command })),
+    }
+  }
+
+  function pastePaneConfig(slot) {
+    if (!copiedPaneConfig) return
+    guard(async () => {
+      const result = await api.addPane(
+        current.id,
+        copiedPaneConfig.directory,
+        slot,
+        copiedPaneConfig.commands.map((command) => ({ ...command })),
+        copiedPaneConfig.title,
+        copiedPaneConfig.remoteHost
+      )
+      await reloadCurrent()
+      activePaneId = result.paneId
     })
   }
 
@@ -668,6 +698,7 @@
                     <button class="icon" title="リモート(GitHub)を開く" onclick={() => openPaneIn(cell.pane.id, 'github')}>🌐</button>
                   {/if}
                   <button class="icon" title="編集" onclick={() => startEditPane(cell.pane)}>✎</button>
+                  <button class="icon" title="このペインの設定をコピー" onclick={() => copyPaneConfig(cell.pane)}>⧉</button>
                   <button class="icon" title="最大化/戻す" onclick={() => toggleMaximize(cell.pane.id)}>⤢</button>
                   <button class="icon" title="削除" onclick={() => removePane(cell.pane.id)}>✕</button>
                 </span>
@@ -770,7 +801,14 @@
                 </div>
               </div>
             {:else}
-              <button class="empty-slot" onclick={() => startAddPane(cell.slot)}>＋ ペインを追加</button>
+              <div class="empty-slot-actions">
+                <button class="empty-slot" onclick={() => startAddPane(cell.slot)}>＋ ペインを追加</button>
+                {#if copiedPaneConfig}
+                  <button class="empty-slot" onclick={() => pastePaneConfig(cell.slot)} disabled={busy}>
+                    ⧉ 設定を貼り付けて複製
+                  </button>
+                {/if}
+              </div>
             {/if}
           </div>
         {/each}
