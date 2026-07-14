@@ -105,7 +105,7 @@ func (w *Watcher) poll(now time.Time) {
 	w.mu.Unlock()
 	for _, ch := range subs {
 		select {
-		case ch <- snap:
+		case ch <- cloneSnapshot(snap):
 		default:
 			// 受信が滞っている購読者はスキップ(次の変化でまた試す)。
 		}
@@ -140,7 +140,7 @@ func (w *Watcher) compute(now time.Time) Snapshot {
 func (w *Watcher) Current() Snapshot {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.current
+	return cloneSnapshot(w.current)
 }
 
 // Subscribe returns the current snapshot, a channel receiving subsequent
@@ -149,7 +149,7 @@ func (w *Watcher) Subscribe() (Snapshot, <-chan Snapshot, func()) {
 	ch := make(chan Snapshot, 8)
 	w.mu.Lock()
 	w.subs[ch] = struct{}{}
-	snap := w.current
+	snap := cloneSnapshot(w.current)
 	w.mu.Unlock()
 	cancel := func() {
 		w.mu.Lock()
@@ -157,4 +157,14 @@ func (w *Watcher) Subscribe() (Snapshot, <-chan Snapshot, func()) {
 		w.mu.Unlock()
 	}
 	return snap, ch, cancel
+}
+
+// cloneSnapshot returns a deep copy so callers cannot mutate Watcher's
+// internal state or snapshots received by other subscribers.
+func cloneSnapshot(snap Snapshot) Snapshot {
+	cloned := make(Snapshot, len(snap))
+	for paneID, agents := range snap {
+		cloned[paneID] = append([]PaneAgent(nil), agents...)
+	}
+	return cloned
 }

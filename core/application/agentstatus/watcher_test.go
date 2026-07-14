@@ -73,6 +73,36 @@ func TestWatcherScanErrorYieldsEmpty(t *testing.T) {
 	}
 }
 
+func TestWatcherSnapshotsAreDefensivelyCopied(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	w := NewWatcher(
+		func() []SessionInfo { return []SessionInfo{{PaneID: "pane-1", Pid: 10}} },
+		func() ([]Proc, error) { return []Proc{{PID: 11, PPID: 10, Command: "claude"}}, nil },
+		time.Hour,
+	)
+
+	_, ch, cancel := w.Subscribe()
+	defer cancel()
+	w.poll(now)
+	received := <-ch
+	received["pane-1"][0].Tool = "modified"
+	delete(received, "pane-1")
+
+	want := Snapshot{"pane-1": {{Tool: "claude", State: StateActive}}}
+	if got := w.Current(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("Current() after mutating received snapshot = %v, want %v", got, want)
+	}
+
+	current := w.Current()
+	current["pane-1"][0].State = StateWait
+	delete(current, "pane-1")
+	initial, _, unsubscribe := w.Subscribe()
+	defer unsubscribe()
+	if !reflect.DeepEqual(initial, want) {
+		t.Fatalf("Subscribe() snapshot after mutating Current() result = %v, want %v", initial, want)
+	}
+}
+
 var errScan = errFake("scan failed")
 
 type errFake string
