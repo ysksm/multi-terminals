@@ -178,6 +178,15 @@ func (s *ptySession) ID() string {
 	return s.id
 }
 
+// Pid returns the shell's OS process ID (0 if unavailable). Exposed for
+// agent-status detection, which walks the process tree below the shell.
+func (s *ptySession) Pid() int {
+	if s.cmd != nil && s.cmd.Process != nil {
+		return s.cmd.Process.Pid
+	}
+	return 0
+}
+
 // Write sends data to the PTY's standard input.
 func (s *ptySession) Write(data []byte) error {
 	s.writeMu.Lock()

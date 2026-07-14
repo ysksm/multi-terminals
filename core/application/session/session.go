@@ -2,6 +2,7 @@ package session
 
 import (
 	"sync"
+	"time"
 
 	"github.com/ysksm/multi-terminals/core/application/port"
 )
@@ -34,6 +35,7 @@ type Session struct {
 	scrollback []byte
 	subs       map[*Subscription]struct{}
 	ended      bool
+	lastOutput time.Time // 最後に出力チャンクを受け取った時刻(未受信ならゼロ値)
 
 	done chan struct{} // closed when the underlying session has ended
 }
@@ -59,6 +61,7 @@ func (s *Session) drain() {
 	for chunk := range s.inner.Output() {
 		s.mu.Lock()
 		s.appendScrollback(chunk)
+		s.lastOutput = time.Now()
 		for sub := range s.subs {
 			select {
 			case sub.ch <- chunk:
@@ -122,6 +125,35 @@ func (s *Session) Unsubscribe(sub *Subscription) {
 func (s *Session) ID() string                    { return s.inner.ID() }
 func (s *Session) Write(data []byte) error        { return s.inner.Write(data) }
 func (s *Session) Resize(cols, rows uint16) error { return s.inner.Resize(cols, rows) }
+
+// Pid returns the OS process ID of the underlying local terminal process, or
+// 0 when unknown (e.g. remote sessions or fakes without a local PID).
+func (s *Session) Pid() int {
+	if p, ok := s.inner.(interface{ Pid() int }); ok {
+		return p.Pid()
+	}
+	return 0
+}
+
+// Tail returns a copy of up to the last n bytes of scrollback.
+func (s *Session) Tail(n int) []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n > len(s.scrollback) {
+		n = len(s.scrollback)
+	}
+	out := make([]byte, n)
+	copy(out, s.scrollback[len(s.scrollback)-n:])
+	return out
+}
+
+// LastOutputAt returns the arrival time of the most recent output chunk
+// (zero value if no output has been received yet).
+func (s *Session) LastOutputAt() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastOutput
+}
 
 // Done is closed when the underlying session has fully ended.
 func (s *Session) Done() <-chan struct{} { return s.done }

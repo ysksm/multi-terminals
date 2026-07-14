@@ -4,6 +4,7 @@
 
 - 1画面 / 左右2分割 / 上下2分割 / 4分割のプリセットレイアウト + アクティブペイン最大化
 - ペインごとに作業ディレクトリと起動コマンド（自動実行/手動）を保存
+- ワークスペース一覧に claude code / codex の稼働状況を表示（● 実行中 / ⏸ 許可待ち、件数つき・リアルタイム更新。macOS / Linux）
 - 「前回開いた状態」を起動時に復元
 - バックエンド: Go（DDD レイヤード + クリーンアーキテクチャ + CQRS）。ターミナルは **Unix=PTY / Windows=ConPTY** にネイティブ対応（[go-pty](https://github.com/aymanbagabas/go-pty)）。
 - フロントエンド: Svelte 5 + Vite + xterm.js（ブラウザ）。Wails 版は将来対応予定。
