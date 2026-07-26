@@ -179,10 +179,19 @@ curl http://localhost:8080/api/remote/identity
 
 | 変数 | 既定 | 説明 |
 | --- | --- | --- |
+| `HOST` | （空 = 全インターフェース） | バックエンドの bind アドレス（例: `127.0.0.1` でローカル限定） |
 | `PORT` | `8080` | バックエンドの待受ポート |
 | `MULTI_TERMINALS_DIR` | OS のユーザー設定ディレクトリ配下 `multi-terminals/` | ワークスペース JSON と `app-state.json` の保存先 |
 | `MULTI_TERMINALS_SHELL` | （Windows のみ）`powershell.exe` | Windows で使うデフォルトシェル（`cmd.exe` 等に上書き可） |
 | `MULTI_TERMINALS_SSH_INSECURE` | （未設定＝検証あり） | `ssh://` 接続で `known_hosts` によるホスト鍵検証をスキップ（`1` 等の非空値で有効）。信頼できる LAN/VPN 限定 |
+
+`HOST` / `PORT` は、サーバ起動時のカレントディレクトリに置いた **`.env` ファイル**でも設定できます（優先順位: 環境変数 > `.env` > 既定値）。
+
+```sh
+# .env の例
+HOST=127.0.0.1
+PORT=9000
+```
 
 リモート実行の鍵ファイル（`MULTI_TERMINALS_DIR` 配下。「🔑 リモート設定」から作成/再作成/削除）:
 
