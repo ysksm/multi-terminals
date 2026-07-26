@@ -38,7 +38,12 @@ func main() {
 	// take precedence over this root catch-all.
 	mux.Handle("/", webui.Handler())
 
-	addr := ":" + portFromEnv("8080")
+	// Listen address: process env vars > ./.env > defaults (:8080).
+	dotenv, err := loadDotEnv(".env")
+	if err != nil {
+		log.Printf("multi-terminals: read .env: %v (continuing with defaults)", err)
+	}
+	addr := resolveAddr(os.Getenv, dotenv)
 	ui := "embedded UI"
 	if !webui.IsBuilt() {
 		ui = "API only (frontend not embedded — run scripts/dev.sh build, or use the Vite dev server)"
@@ -69,12 +74,4 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("multi-terminals: server error: %v", err)
 	}
-}
-
-// portFromEnv returns the PORT environment variable value or the given default.
-func portFromEnv(defaultPort string) string {
-	if p := os.Getenv("PORT"); p != "" {
-		return p
-	}
-	return defaultPort
 }
