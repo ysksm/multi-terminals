@@ -23,18 +23,27 @@ type Runner struct {
 	defaultShell string
 }
 
-// ensureTerminalEnv returns env with TERM and COLORTERM populated, defaulting
-// to xterm-256color / truecolor when the variable is absent. Values already
-// present in env are preserved.
+// ensureTerminalEnv returns env with TERM, COLORTERM and a UTF-8 locale
+// populated, defaulting to xterm-256color / truecolor / ja_JP.UTF-8 when the
+// variables are absent. Values already present in env are preserved; any of
+// LANG, LC_ALL or LC_CTYPE counts as an explicit locale choice and suppresses
+// the LANG default. Without a locale the shell falls back to the C locale and
+// zsh's line editor renders multibyte (e.g. Japanese) input as <00XX> hex
+// escapes instead of characters.
 func ensureTerminalEnv(env []string) []string {
 	hasTerm := false
 	hasColor := false
+	hasLocale := false
 	for _, kv := range env {
 		switch {
 		case strings.HasPrefix(kv, "TERM="):
 			hasTerm = true
 		case strings.HasPrefix(kv, "COLORTERM="):
 			hasColor = true
+		case strings.HasPrefix(kv, "LANG="),
+			strings.HasPrefix(kv, "LC_ALL="),
+			strings.HasPrefix(kv, "LC_CTYPE="):
+			hasLocale = true
 		}
 	}
 	if !hasTerm {
@@ -42,6 +51,9 @@ func ensureTerminalEnv(env []string) []string {
 	}
 	if !hasColor {
 		env = append(env, "COLORTERM=truecolor")
+	}
+	if !hasLocale {
+		env = append(env, "LANG=ja_JP.UTF-8")
 	}
 	return env
 }
