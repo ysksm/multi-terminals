@@ -7,12 +7,23 @@
   import { cycleWorkspaceId, workspaceIdAt } from './lib/workspaceNav.js'
   import { SHORTCUT_GROUPS, paneShortcutAction } from './lib/shortcuts.js'
   import { aggregateByWorkspace, connectAgentStatus } from './lib/agentStatus.js'
+  import { collectActiveTerminals, gridDimensions } from './lib/activeTerminals.js'
 
   let workspaces = $state([])
   let agentPanes = $state({}) // paneId → [{tool, state}]（サーバから push）
   const agentByWs = $derived(aggregateByWorkspace(agentPanes, workspaces))
   let current = $state(null) // 選択中の WorkspaceDTO
-  let openedPaneIds = $state(new Set()) // ライブセッションを持つ pane
+  let openedPaneIds = $state(new Set()) // 現ワークスペースでライブセッションを持つ pane
+  let livePaneIds = $state(new Set()) // 全ワークスペース横断のライブセッション
+
+  // 表示モード: 'workspace' = 従来のレイアウト / 'active' = 全ワークスペース横断で
+  // 起動中のターミナルだけを集約したビュー。
+  let viewMode = $state(localStorage.getItem('mt.viewMode') === 'active' ? 'active' : 'workspace')
+  let activeAgentOnly = $state(localStorage.getItem('mt.activeAgentOnly') === '1')
+  const activeTerminals = $derived(
+    collectActiveTerminals({ workspaces, livePaneIds, agentPanes, agentOnly: activeAgentOnly })
+  )
+  const activeGrid = $derived(gridDimensions(activeTerminals.length))
   let error = $state('')
   let busy = $state(false)
 
@@ -143,13 +154,15 @@
   // サーバー上で生きているセッションを取得し、現ワークスペースの該当ペインを
   // openedPaneIds にセットする。端末コンポーネントが自動で再接続し、
   // スクロールバック（直近の画面）が復元される。
+  // 併せて全ワークスペース分を livePaneIds に保持する（アクティブビュー用）。
   async function syncLiveSessions() {
+    const res = await api.listSessions()
+    const live = new Set(res?.paneIds || [])
+    livePaneIds = live
     if (!current) {
       openedPaneIds = new Set()
       return
     }
-    const res = await api.listSessions()
-    const live = new Set(res?.paneIds || [])
     openedPaneIds = new Set(current.panes.filter((p) => live.has(p.id)).map((p) => p.id))
   }
 
@@ -232,6 +245,8 @@
       await api.removePane(current.id, paneId)
       openedPaneIds.delete(paneId)
       openedPaneIds = new Set(openedPaneIds)
+      livePaneIds.delete(paneId)
+      livePaneIds = new Set(livePaneIds)
       await reloadCurrent()
     })
   }
@@ -267,6 +282,7 @@
       const res = await api.open(current.id)
       const ids = (res?.panes || []).map((p) => p.paneId)
       openedPaneIds = new Set(ids)
+      livePaneIds = new Set([...livePaneIds, ...ids])
       await reloadCurrent()
     })
   }
@@ -287,6 +303,33 @@
     localStorage.setItem('mt.sidebarCollapsed', sidebarCollapsed ? '1' : '0')
   }
 
+  // 全ワークスペース分のペイン情報とライブセッションを取り直す。アクティブビューは
+  // 他ワークスペースのペインも並べるため、現ワークスペースだけでは足りない。
+  function refreshActiveView() {
+    return guard(async () => {
+      await refreshList()
+      await syncLiveSessions()
+    })
+  }
+
+  function setViewMode(mode) {
+    viewMode = mode
+    localStorage.setItem('mt.viewMode', mode)
+    if (mode === 'active') refreshActiveView()
+  }
+
+  function toggleAgentOnly(value) {
+    activeAgentOnly = value
+    localStorage.setItem('mt.activeAgentOnly', value ? '1' : '0')
+  }
+
+  // アクティブビューのペインをワークスペース表示で開く（該当ワークスペースへ移動）。
+  async function jumpToPane(t) {
+    setViewMode('workspace')
+    if (current?.id !== t.workspaceId) await select(t.workspaceId)
+    activePaneId = t.paneId
+  }
+
   function onKey(e) {
     // Cmd+/: ショートカット一覧の表示/非表示
     if (e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && e.key === '/') {
@@ -305,6 +348,13 @@
       e.preventDefault()
       e.stopPropagation()
       showRemoteSettings = false
+      return
+    }
+    // Ctrl+Shift+A: アクティブビュー（起動中のターミナル集約）と通常表示を切替
+    if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.key?.toLowerCase() === 'a') {
+      e.preventDefault()
+      e.stopPropagation()
+      setViewMode(viewMode === 'active' ? 'workspace' : 'active')
       return
     }
     // Cmd+1〜9: N 番目のワークスペースへ直接ジャンプ
@@ -526,6 +576,28 @@
     }
   })
 
+  // アクティブビュー表示中は、他ワークスペースで起動/終了したペインを拾うために
+  // 一覧とセッションを定期的に取り直す（エージェント状態は SSE で届くので対象外）。
+  $effect(() => {
+    if (viewMode !== 'active') return
+    // 前回の取得が 3 秒以内に終わらないときは、リクエストの重複と
+    // 到着順の入れ替わりによる状態の巻き戻りを避けるためにこの周期を飛ばす。
+    let inFlight = false
+    const timer = setInterval(async () => {
+      if (inFlight) return
+      inFlight = true
+      try {
+        await refreshList()
+        await syncLiveSessions()
+      } catch {
+        // サーバ再起動中など。次回の周期に任せる。
+      } finally {
+        inFlight = false
+      }
+    }, 3000)
+    return () => clearInterval(timer)
+  })
+
   // 表示するスロット一覧（最大化中はそのペインのみ）
   const slots = $derived.by(() => {
     if (!current) return []
@@ -544,6 +616,19 @@
 <div class="app" class:sidebar-collapsed={sidebarCollapsed}>
   <aside class="sidebar">
     <h1>multi-terminals</h1>
+
+    <div class="view-switch">
+      <button
+        class:active={viewMode === 'workspace'}
+        onclick={() => setViewMode('workspace')}
+        title="ワークスペースのレイアウト表示"
+      >🗂 ワークスペース</button>
+      <button
+        class:active={viewMode === 'active'}
+        onclick={() => setViewMode('active')}
+        title="起動中のターミナルだけを全ワークスペース横断で集約 (Ctrl+Shift+A)"
+      >⚡ アクティブ</button>
+    </div>
 
     <section class="create">
       <h2>新規ワークスペース</h2>
@@ -618,7 +703,79 @@
       <div class="error" role="alert">{error}</div>
     {/if}
 
-    {#if !current}
+    {#if viewMode === 'active'}
+      <!-- 全ワークスペース横断で、起動中のターミナルだけを 1 画面に集約する -->
+      <div class="toolbar">
+        <button
+          class="icon sidebar-toggle"
+          onclick={toggleSidebar}
+          aria-label="サイドバー切替"
+          aria-expanded={!sidebarCollapsed}
+        >☰</button>
+        <strong>アクティブなターミナル</strong>
+        <label class="inline-check">
+          <input
+            type="checkbox"
+            checked={activeAgentOnly}
+            onchange={(e) => toggleAgentOnly(e.currentTarget.checked)}
+          />
+          エージェント稼働中のみ
+        </label>
+        <span class="spacer"></span>
+        <span class="muted">{activeTerminals.length} 件</span>
+        <button onclick={refreshActiveView} disabled={busy}>⟳ 更新</button>
+      </div>
+
+      {#if activeTerminals.length === 0}
+        <div class="empty">
+          {activeAgentOnly
+            ? 'claude / codex が稼働中のターミナルはありません'
+            : '起動中のターミナルはありません（ワークスペースを開くとここに集まります）'}
+        </div>
+      {:else}
+        <div
+          class="grid active-grid"
+          style="grid-template-columns: repeat({activeGrid.cols}, 1fr);"
+        >
+          {#each activeTerminals as t (t.paneId)}
+            <div class="cell" class:active-cell={t.paneId === activePaneId}>
+              <div class="cell-head">
+                <span class="ws-tag" title="ワークスペース: {t.workspaceName}">{t.workspaceName}</span>
+                <span class="dir" title={t.directory}>{t.title || t.directory}</span>
+                {#if t.remoteHost}
+                  <span class="remote-badge" title="リモート実行: {t.remoteHost}">🖥 {t.remoteHost}</span>
+                {/if}
+                {#each t.agents as a (a.tool)}
+                  <span
+                    class="agent-badge"
+                    title="{a.tool}: {a.state === 'wait' ? '許可待ち' : '実行中'}"
+                  >
+                    {a.tool}
+                    <span class="agent-st {a.state}">{a.state === 'wait' ? '⏸' : '●'}</span>
+                  </span>
+                {/each}
+                <span class="cell-actions">
+                  <button
+                    type="button"
+                    class="icon"
+                    title="このペインをワークスペース表示で開く"
+                    aria-label="{t.title || t.directory} をワークスペース表示で開く"
+                    onclick={() => jumpToPane(t)}
+                  >↗</button>
+                </span>
+              </div>
+              <div class="cell-body">
+                <Terminal
+                  paneId={t.paneId}
+                  active={t.paneId === activePaneId}
+                  onActivate={() => (activePaneId = t.paneId)}
+                />
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {:else if !current}
       <div class="empty-bar">
         <button
           class="icon sidebar-toggle"

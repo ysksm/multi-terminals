@@ -26,6 +26,7 @@ export const SHORTCUT_GROUPS = [
   {
     label: 'その他',
     items: [
+      { keys: ['Ctrl', 'Shift', 'A'], desc: 'アクティブなターミナル集約ビューの表示 / 非表示' },
       { keys: ['⌘', '/'], desc: 'ショートカット一覧を表示 / 非表示' },
       { keys: ['Esc'], desc: 'ショートカット一覧を閉じる' },
     ],
