@@ -580,12 +580,19 @@
   // 一覧とセッションを定期的に取り直す（エージェント状態は SSE で届くので対象外）。
   $effect(() => {
     if (viewMode !== 'active') return
+    // 前回の取得が 3 秒以内に終わらないときは、リクエストの重複と
+    // 到着順の入れ替わりによる状態の巻き戻りを避けるためにこの周期を飛ばす。
+    let inFlight = false
     const timer = setInterval(async () => {
+      if (inFlight) return
+      inFlight = true
       try {
         await refreshList()
         await syncLiveSessions()
       } catch {
         // サーバ再起動中など。次回の周期に任せる。
+      } finally {
+        inFlight = false
       }
     }, 3000)
     return () => clearInterval(timer)
@@ -749,8 +756,10 @@
                 {/each}
                 <span class="cell-actions">
                   <button
+                    type="button"
                     class="icon"
                     title="このペインをワークスペース表示で開く"
+                    aria-label="{t.title || t.directory} をワークスペース表示で開く"
                     onclick={() => jumpToPane(t)}
                   >↗</button>
                 </span>
