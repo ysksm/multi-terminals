@@ -2,13 +2,15 @@ import assert from 'node:assert'
 import { collectActiveTerminals, gridDimensions, paneStatus } from './activeTerminals.js'
 
 // ---- paneStatus ----
-assert.equal(paneStatus(undefined), 'idle', 'エージェント情報なし=idle')
-assert.equal(paneStatus([]), 'idle', 'エージェント 0 件=idle')
-assert.equal(paneStatus([{ tool: 'claude', state: 'active' }]), 'active', '実行中=active')
+assert.equal(paneStatus(undefined), 'shell', 'エージェント情報なし=shell')
+assert.equal(paneStatus([]), 'shell', 'エージェント 0 件=shell')
+assert.equal(paneStatus([{ tool: 'claude', state: 'working' }]), 'working', '処理中=working')
+assert.equal(paneStatus([{ tool: 'claude', state: 'idle' }, { tool: 'codex', state: 'done' }]), 'done', 'done は idle より優先')
+assert.equal(paneStatus([{ tool: 'claude', state: 'weird' }]), 'unknown', '未知の状態は unknown')
 assert.equal(
-  paneStatus([{ tool: 'claude', state: 'active' }, { tool: 'codex', state: 'wait' }]),
-  'wait',
-  'wait が 1 つでもあれば wait'
+  paneStatus([{ tool: 'claude', state: 'working' }, { tool: 'codex', state: 'blocked' }]),
+  'blocked',
+  'blocked が 1 つでもあれば blocked'
 )
 
 // ---- collectActiveTerminals ----
@@ -50,19 +52,19 @@ const workspaces = [
   assert.deepEqual(got, [], '未知の paneId は無視')
 }
 
-// 並び順: 許可待ち → 実行中 → その他、同順位はワークスペース名 → スロット
+// 並び順: blocked → working → その他、同順位はワークスペース名 → スロット
 {
   const got = collectActiveTerminals({
     workspaces,
     livePaneIds: new Set(['p1', 'p2', 'p3', 'p4']),
     agentPanes: {
-      p1: [{ tool: 'claude', state: 'active' }],
-      p3: [{ tool: 'codex', state: 'wait' }],
-      p4: [{ tool: 'claude', state: 'active' }],
+      p1: [{ tool: 'claude', state: 'working' }],
+      p3: [{ tool: 'codex', state: 'blocked' }],
+      p4: [{ tool: 'claude', state: 'working' }],
     },
   })
-  assert.deepEqual(got.map((t) => t.paneId), ['p3', 'p1', 'p4', 'p2'], '許可待ち→実行中→idle の順')
-  assert.deepEqual(got.map((t) => t.status), ['wait', 'active', 'active', 'idle'])
+  assert.deepEqual(got.map((t) => t.paneId), ['p3', 'p1', 'p4', 'p2'], 'blocked→working→shell の順')
+  assert.deepEqual(got.map((t) => t.status), ['blocked', 'working', 'working', 'shell'])
 }
 
 // agentOnly: エージェントが居ないペインを除外する
@@ -70,7 +72,7 @@ const workspaces = [
   const got = collectActiveTerminals({
     workspaces,
     livePaneIds: ['p1', 'p2', 'p3'],
-    agentPanes: { p1: [{ tool: 'claude', state: 'active' }], p3: [{ tool: 'codex', state: 'wait' }] },
+    agentPanes: { p1: [{ tool: 'claude', state: 'working' }], p3: [{ tool: 'codex', state: 'blocked' }] },
     agentOnly: true,
   })
   assert.deepEqual(got.map((t) => t.paneId), ['p3', 'p1'], 'エージェント稼働中のみに絞る')
@@ -81,7 +83,7 @@ const workspaces = [
   const got = collectActiveTerminals({
     workspaces,
     livePaneIds: ['p1'],
-    agentPanes: { p1: [{ tool: 'codex', state: 'active' }, { tool: 'claude', state: 'active' }] },
+    agentPanes: { p1: [{ tool: 'codex', state: 'working' }, { tool: 'claude', state: 'working' }] },
   })
   assert.deepEqual(got[0].agents.map((a) => a.tool), ['claude', 'codex'], 'ツール名昇順')
 }

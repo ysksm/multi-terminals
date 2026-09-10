@@ -37,7 +37,12 @@ type OpenWorkspaceHandler struct {
 	shell    string
 	cols     uint16
 	rows     uint16
+	screens  port.ScreenModelFactory // nil なら画面モデルを付けない
 }
+
+// SetScreenFactory はローカルペインのセッションに付ける画面モデルの生成関数を
+// 設定する(エージェント状態判定用)。
+func (h *OpenWorkspaceHandler) SetScreenFactory(f port.ScreenModelFactory) { h.screens = f }
 
 // NewOpenWorkspaceHandler constructs an OpenWorkspaceHandler with default terminal size 80x24.
 func NewOpenWorkspaceHandler(
@@ -117,7 +122,11 @@ func (h *OpenWorkspaceHandler) Handle(ctx context.Context, cmd OpenWorkspaceComm
 			return OpenWorkspaceResult{}, fmt.Errorf("open workspace: start pane %s: %w", paneID, err)
 		}
 
-		hub := session.NewSession(inner)
+		var screen port.ScreenModel
+		if h.screens != nil && req.RemoteHost == "" {
+			screen = h.screens(h.cols, h.rows)
+		}
+		hub := session.NewSessionWithOptions(inner, session.DefaultScrollbackBytes, screen)
 		h.registry.Add(paneID, hub)
 		newlyOpened = append(newlyOpened, paneID)
 		allPaneIDs = append(allPaneIDs, paneID)

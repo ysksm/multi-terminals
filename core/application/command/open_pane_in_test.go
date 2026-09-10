@@ -80,6 +80,29 @@ func TestOpenPaneInHandler_Handle_VSCode(t *testing.T) {
 	}
 }
 
+func TestOpenPaneInHandler_Handle_Terminal(t *testing.T) {
+	ctx := context.Background()
+	repo := apptest.NewFakeRepo()
+	wsID, paneID := setupWorkspaceWithPane(t, repo, "/tmp/project")
+	opener := apptest.NewFakeDirectoryOpener()
+
+	handler := command.NewOpenPaneInHandler(repo, opener, apptest.NewFakeGitService())
+	err := handler.Handle(ctx, command.OpenPaneInCommand{
+		WorkspaceID: wsID,
+		PaneID:      paneID,
+		Target:      command.OpenTargetTerminal,
+	})
+	if err != nil {
+		t.Fatalf("handle: %v", err)
+	}
+	if got := opener.TerminalDirs; len(got) != 1 || got[0] != "/tmp/project" {
+		t.Errorf("TerminalDirs = %v, want [/tmp/project]", got)
+	}
+	if len(opener.RevealedDirs) != 0 || len(opener.EditorDirs) != 0 {
+		t.Errorf("other openers called: revealed=%v editor=%v", opener.RevealedDirs, opener.EditorDirs)
+	}
+}
+
 func TestOpenPaneInHandler_Handle_GitHub(t *testing.T) {
 	ctx := context.Background()
 	repo := apptest.NewFakeRepo()

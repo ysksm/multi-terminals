@@ -1,5 +1,5 @@
 // Package sysopen は port.DirectoryOpener の OS 実装を提供する。
-// ディレクトリを Finder（ファイルマネージャ）や VS Code で開く。
+// ディレクトリを Finder（ファイルマネージャ）や VS Code、ターミナルアプリで開く。
 package sysopen
 
 import (
@@ -86,4 +86,24 @@ func urlArgs(goos, url string) []string {
 // OpenURL は既定のブラウザで URL を開く。
 func (o *Opener) OpenURL(url string) error {
 	return run(urlArgs(runtime.GOOS, url))
+}
+
+// terminalArgs は OS のターミナルアプリを別プロセスで起動してディレクトリを開くコマンドを返す。
+// macOS はディレクトリを Terminal.app に渡すとそこを cwd とした新しいウィンドウが開く。
+// Windows は Windows Terminal（wt）を使う。Linux はデスクトップ環境依存のため、
+// 多くの環境で使える x-terminal-emulator を作業ディレクトリ指定で起動する。
+func terminalArgs(goos, dir string) []string {
+	switch goos {
+	case "darwin":
+		return []string{"open", "-a", "Terminal", dir}
+	case "windows":
+		return []string{"wt", "-d", dir}
+	default:
+		return []string{"x-terminal-emulator", "--working-directory=" + dir}
+	}
+}
+
+// OpenInTerminal は OS のターミナルアプリを別プロセスで起動してディレクトリを開く。
+func (o *Opener) OpenInTerminal(dir string) error {
+	return run(terminalArgs(runtime.GOOS, dir))
 }

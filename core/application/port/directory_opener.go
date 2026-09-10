@@ -11,4 +11,8 @@ type DirectoryOpener interface {
 
 	// OpenURL は URL を既定のブラウザで開く。
 	OpenURL(url string) error
+
+	// OpenInTerminal は OS のターミナルアプリ（Terminal.app 等）を別プロセスで起動し、
+	// ディレクトリを作業ディレクトリとして開く。
+	OpenInTerminal(dir string) error
 }

@@ -16,6 +16,7 @@ type FakeDirectoryOpener struct {
 	RevealedDirs []string
 	EditorDirs   []string
 	OpenedURLs   []string
+	TerminalDirs []string
 	Err          error
 }
 
@@ -51,5 +52,15 @@ func (f *FakeDirectoryOpener) OpenURL(url string) error {
 		return f.Err
 	}
 	f.OpenedURLs = append(f.OpenedURLs, url)
+	return nil
+}
+
+func (f *FakeDirectoryOpener) OpenInTerminal(dir string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.Err != nil {
+		return f.Err
+	}
+	f.TerminalDirs = append(f.TerminalDirs, dir)
 	return nil
 }

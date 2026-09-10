@@ -56,7 +56,8 @@ func (d Deps) handleAgentStatusStream(w http.ResponseWriter, r *http.Request) {
 }
 
 // registrySource は Registry のライブセッションを agentstatus.Source に
-// 適合させる。PID を持たないセッション(リモート等)は対象外。
+// 適合させる。PID を持たないセッション(リモート等)は対象外。画面モデルの
+// 無いセッションは画面テキスト空で渡す(PTY 活動のみで判定される)。
 func registrySource(reg *session.Registry) agentstatus.Source {
 	return func() []agentstatus.SessionInfo {
 		var out []agentstatus.SessionInfo
@@ -69,12 +70,17 @@ func registrySource(reg *session.Registry) agentstatus.Source {
 			if pid <= 0 {
 				continue
 			}
-			out = append(out, agentstatus.SessionInfo{
+			info := agentstatus.SessionInfo{
 				PaneID:     id,
 				Pid:        pid,
-				Tail:       s.Tail(agentstatus.TailBytes),
 				LastOutput: s.LastOutputAt(),
-			})
+			}
+			if scr := s.Screen(); scr != nil {
+				info.Screen = scr.Text()
+				info.OSCTitle = scr.Title()
+				info.OSCProgress = scr.Progress()
+			}
+			out = append(out, info)
 		}
 		return out
 	}

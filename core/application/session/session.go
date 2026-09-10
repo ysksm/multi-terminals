@@ -30,6 +30,7 @@ func (s *Subscription) Done() <-chan struct{} { return s.done }
 type Session struct {
 	inner         port.TerminalSession
 	maxScrollback int
+	screen        port.ScreenModel // nil なら画面モデル無し(リモート等)
 
 	mu         sync.Mutex
 	scrollback []byte
@@ -47,9 +48,16 @@ func NewSession(inner port.TerminalSession) *Session {
 
 // NewSessionWithScrollback wraps inner with a custom scrollback size.
 func NewSessionWithScrollback(inner port.TerminalSession, maxScrollback int) *Session {
+	return NewSessionWithOptions(inner, maxScrollback, nil)
+}
+
+// NewSessionWithOptions は screen(nil 可)を伴う Session を返す。screen には
+// 出力チャンクとリサイズがそのまま転送され、エージェント状態判定の入力になる。
+func NewSessionWithOptions(inner port.TerminalSession, maxScrollback int, screen port.ScreenModel) *Session {
 	s := &Session{
 		inner:         inner,
 		maxScrollback: maxScrollback,
+		screen:        screen,
 		subs:          make(map[*Subscription]struct{}),
 		done:          make(chan struct{}),
 	}
@@ -59,6 +67,9 @@ func NewSessionWithScrollback(inner port.TerminalSession, maxScrollback int) *Se
 
 func (s *Session) drain() {
 	for chunk := range s.inner.Output() {
+		if s.screen != nil {
+			s.screen.Write(chunk)
+		}
 		s.mu.Lock()
 		s.appendScrollback(chunk)
 		s.lastOutput = time.Now()
@@ -122,9 +133,17 @@ func (s *Session) Unsubscribe(sub *Subscription) {
 }
 
 // ID, Write, Resize delegate to the wrapped session.
-func (s *Session) ID() string                    { return s.inner.ID() }
-func (s *Session) Write(data []byte) error        { return s.inner.Write(data) }
-func (s *Session) Resize(cols, rows uint16) error { return s.inner.Resize(cols, rows) }
+func (s *Session) ID() string              { return s.inner.ID() }
+func (s *Session) Write(data []byte) error { return s.inner.Write(data) }
+func (s *Session) Resize(cols, rows uint16) error {
+	if s.screen != nil {
+		s.screen.Resize(cols, rows)
+	}
+	return s.inner.Resize(cols, rows)
+}
+
+// Screen は画面モデルを返す(無ければ nil)。
+func (s *Session) Screen() port.ScreenModel { return s.screen }
 
 // Pid returns the OS process ID of the underlying local terminal process, or
 // 0 when unknown (e.g. remote sessions or fakes without a local PID).

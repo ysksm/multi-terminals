@@ -53,3 +53,19 @@ func TestEditorArgs(t *testing.T) {
 		}
 	}
 }
+
+func TestTerminalArgs(t *testing.T) {
+	tests := []struct {
+		goos string
+		want []string
+	}{
+		{"darwin", []string{"open", "-a", "Terminal", "/tmp/p"}},
+		{"windows", []string{"wt", "-d", "/tmp/p"}},
+		{"linux", []string{"x-terminal-emulator", "--working-directory=/tmp/p"}},
+	}
+	for _, tt := range tests {
+		if got := terminalArgs(tt.goos, "/tmp/p"); !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("terminalArgs(%q) = %v, want %v", tt.goos, got, tt.want)
+		}
+	}
+}

@@ -12,19 +12,20 @@ import (
 
 // OpenPaneIn の対象アプリケーション。
 const (
-	OpenTargetFinder = "finder"
-	OpenTargetVSCode = "vscode"
-	OpenTargetGitHub = "github"
+	OpenTargetFinder   = "finder"
+	OpenTargetVSCode   = "vscode"
+	OpenTargetGitHub   = "github"
+	OpenTargetTerminal = "terminal"
 )
 
 // OpenPaneInCommand は pane の作業ディレクトリを外部アプリで開くコマンドの入力 DTO。
 type OpenPaneInCommand struct {
 	WorkspaceID string
 	PaneID      string
-	Target      string // OpenTargetFinder | OpenTargetVSCode | OpenTargetGitHub
+	Target      string // OpenTargetFinder | OpenTargetVSCode | OpenTargetGitHub | OpenTargetTerminal
 }
 
-// OpenPaneInHandler は pane のディレクトリを Finder / VS Code / リモート(GitHub) で開くハンドラ。
+// OpenPaneInHandler は pane のディレクトリを Finder / VS Code / リモート(GitHub) / 別プロセスのターミナルで開くハンドラ。
 type OpenPaneInHandler struct {
 	repo   domain.WorkspaceRepository
 	opener port.DirectoryOpener
@@ -110,6 +111,10 @@ func (h *OpenPaneInHandler) Handle(ctx context.Context, cmd OpenPaneInCommand) e
 		}
 		if err := h.opener.OpenURL(webURL); err != nil {
 			return fmt.Errorf("open pane in: open url: %w", err)
+		}
+	case OpenTargetTerminal:
+		if err := h.opener.OpenInTerminal(dir); err != nil {
+			return fmt.Errorf("open pane in: open in terminal: %w", err)
 		}
 	default:
 		return apperr.Validation(fmt.Errorf("open pane in: unknown target: %q", cmd.Target))

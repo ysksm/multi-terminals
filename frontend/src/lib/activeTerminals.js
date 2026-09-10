@@ -2,14 +2,24 @@
 // サーバは live セッション(/api/sessions)もエージェント稼働状況(/api/agent-status)も
 // pane 単位で配信する(疎結合)ため、ワークスペース情報との突き合わせはここで行う。
 
-// 並び順の優先度。許可待ち(ユーザーの操作待ちで止まっている)を最上位に置く。
-const STATUS_ORDER = { wait: 0, active: 1, idle: 2 }
+import { AGENT_STATES } from './agentStatus.js'
+
+// 並び順の優先度。blocked(人の応答待ちで止まっている)を最上位に置き、
+// エージェントの居ないただのシェル(shell)を最後にする。
+const STATUS_ORDER = Object.fromEntries(AGENT_STATES.map((s, i) => [s, i]))
+STATUS_ORDER.shell = AGENT_STATES.length
 
 // paneStatus は pane のエージェント一覧から表示上の状態を決める。
-// wait が 1 つでもあれば wait、エージェントが居なければ idle(＝起動中なだけ)。
+// 複数エージェントが居れば最も優先度の高い状態(blocked > working > done > idle > unknown)。
+// エージェントが居なければ shell(＝起動中なだけ)。
 export function paneStatus(agents) {
-  if (!agents || agents.length === 0) return 'idle'
-  return agents.some((a) => a.state === 'wait') ? 'wait' : 'active'
+  if (!agents || agents.length === 0) return 'shell'
+  let best = 'unknown'
+  for (const a of agents) {
+    const s = a.state in STATUS_ORDER ? a.state : 'unknown'
+    if (STATUS_ORDER[s] < STATUS_ORDER[best]) best = s
+  }
+  return best
 }
 
 /**
@@ -20,7 +30,7 @@ export function paneStatus(agents) {
  * @param {Set<string>|string[]} opts.livePaneIds - /api/sessions の paneIds
  * @param {Object} opts.agentPanes - paneId → [{tool, state}]（/api/agent-status）
  * @param {boolean} opts.agentOnly - true なら claude/codex 稼働中のペインだけに絞る
- * @returns {Array} 許可待ち → 実行中 → その他、同順位はワークスペース名・スロット順
+ * @returns {Array} blocked → working → done → idle → unknown → shell、同順位はワークスペース名・スロット順
  */
 export function collectActiveTerminals({ workspaces, livePaneIds, agentPanes, agentOnly = false } = {}) {
   const live = livePaneIds instanceof Set ? livePaneIds : new Set(livePaneIds || [])
@@ -30,7 +40,7 @@ export function collectActiveTerminals({ workspaces, livePaneIds, agentPanes, ag
       if (!live.has(pane.id)) continue
       const agents = [...((agentPanes || {})[pane.id] || [])].sort((a, b) => a.tool.localeCompare(b.tool))
       const status = paneStatus(agents)
-      if (agentOnly && status === 'idle') continue
+      if (agentOnly && status === 'shell') continue
       out.push({
         paneId: pane.id,
         workspaceId: ws.id,
