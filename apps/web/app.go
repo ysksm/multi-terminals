@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -11,12 +12,17 @@ import (
 	"github.com/ysksm/multi-terminals/core/application/port"
 	"github.com/ysksm/multi-terminals/core/application/query"
 	"github.com/ysksm/multi-terminals/core/application/session"
+	"github.com/ysksm/multi-terminals/core/application/taskmgmt"
+	"github.com/ysksm/multi-terminals/core/domain"
 	"github.com/ysksm/multi-terminals/core/infrastructure/gitcli"
+	"github.com/ysksm/multi-terminals/core/infrastructure/jirahttp"
 	"github.com/ysksm/multi-terminals/core/infrastructure/jsonstore"
 	"github.com/ysksm/multi-terminals/core/infrastructure/procscan"
 	"github.com/ysksm/multi-terminals/core/infrastructure/remoteterm"
+	"github.com/ysksm/multi-terminals/core/infrastructure/setupexec"
 	"github.com/ysksm/multi-terminals/core/infrastructure/sysopen"
 	"github.com/ysksm/multi-terminals/core/infrastructure/terminal"
+	"github.com/ysksm/multi-terminals/core/infrastructure/vtscreen"
 )
 
 // uuidIDGen is a local port.IDGenerator implementation that produces
@@ -76,7 +82,15 @@ func BuildDeps(baseDir string) (Deps, error) {
 	// エージェント稼働状況(claude/codex)の監視。プロセスのライフサイクルは
 	// サーバと同じでよいので Stop は呼ばない。
 	watcher := agentstatus.NewWatcher(registrySource(reg), procscan.Snapshot, 0)
+	openHandler := command.NewOpenWorkspaceHandler(repo, runner, reg, state, "")
+	openHandler.SetScreenFactory(vtscreen.Factory)
 	watcher.Start()
+
+	deleteWS := command.NewDeleteWorkspaceHandler(repo, reg)
+	tasks, err := buildTaskService(baseDir, repo, idgen, git, reg, deleteWS)
+	if err != nil {
+		return Deps{}, fmt.Errorf("BuildDeps: task service: %w", err)
+	}
 
 	return Deps{
 		Create:              command.NewCreateWorkspaceHandler(repo, idgen),
@@ -100,15 +114,62 @@ func BuildDeps(baseDir string) (Deps, error) {
 		GitBranches:         query.NewListPaneBranchesHandler(repo, git),
 		GitCheckout:         command.NewCheckoutPaneBranchHandler(repo, git),
 		GitOp:               command.NewRunPaneGitOpHandler(repo, git),
-		Open:                command.NewOpenWorkspaceHandler(repo, runner, reg, state, ""),
+		Open:                openHandler,
 		Write:               command.NewWriteToPaneHandler(reg),
 		Resize:              command.NewResizePaneHandler(reg),
 		ClosePane:           command.NewClosePaneHandler(reg),
-		DeleteWorkspace:     command.NewDeleteWorkspaceHandler(repo, reg),
+		DeleteWorkspace:     deleteWS,
+		Tasks:               tasks,
 		Registry:            reg,
 		AgentStatus:         watcher,
 		RemoteTerminal:      remoteterm.Handler(localRunner, authKeys),
 		RemoteIdentityStore: identityStore,
 		RemoteAuthKeys:      authKeys,
 	}, nil
+}
+
+// buildTaskService はタスク管理サービスを JSON ストア・Jira クライアント・
+// セットアップ実行器で組み立てる。
+func buildTaskService(
+	baseDir string,
+	repo domain.WorkspaceRepository,
+	idgen port.IDGenerator,
+	git port.GitService,
+	reg *session.Registry,
+	deleteWS *command.DeleteWorkspaceHandler,
+) (*taskmgmt.Service, error) {
+	taskRepo, err := jsonstore.NewTaskRepository(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	tplRepo, err := jsonstore.NewTemplateRepository(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	bcRepo, err := jsonstore.NewBaseCloneRepository(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	runRepo, err := jsonstore.NewSetupRunRepository(baseDir)
+	if err != nil {
+		return nil, err
+	}
+	return taskmgmt.New(taskmgmt.Deps{
+		Tasks:       taskRepo,
+		Templates:   tplRepo,
+		BaseClones:  bcRepo,
+		Runs:        runRepo,
+		Settings:    jsonstore.NewSettingsStore(baseDir),
+		JiraStore:   jsonstore.NewJiraConfigStore(baseDir),
+		JiraFactory: jirahttp.Factory,
+		Git:         git,
+		Exec:        setupexec.New(),
+		Workspaces:  repo,
+		IDGen:       idgen,
+		LivePaneIDs: reg.IDs,
+		DeleteWorkspace: func(ctx context.Context, id string) error {
+			return deleteWS.Handle(ctx, command.DeleteWorkspaceCommand{WorkspaceID: id})
+		},
+		BaseDir: baseDir,
+	})
 }

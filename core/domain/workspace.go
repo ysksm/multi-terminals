@@ -13,6 +13,9 @@ type Workspace struct {
 	panes      []*Pane
 	lastActive *PaneId
 	maximized  *PaneId
+	// taskID は任意で紐付くタスク(core/domain/task)の ID。空なら未紐付け。
+	// Workspace の不変条件には関与しない(タスク側から見た参照整合はタスク層が保つ)。
+	taskID string
 }
 
 func NewWorkspace(id WorkspaceId, name WorkspaceName, layout LayoutPreset) (*Workspace, error) {
@@ -37,6 +40,12 @@ func (w *Workspace) Panes() []*Pane {
 func (w *Workspace) Rename(name WorkspaceName) {
 	w.name = name
 }
+
+// TaskID は紐付くタスク ID。未紐付けなら空文字列。
+func (w *Workspace) TaskID() string { return w.taskID }
+
+// LinkTask はタスクを紐付ける。空で解除。
+func (w *Workspace) LinkTask(taskID string) { w.taskID = taskID }
 
 // ChangeLayout はレイアウトを変更する。既存 pane 数・slot が新容量に収まらない場合はエラー。
 func (w *Workspace) ChangeLayout(layout LayoutPreset) error {

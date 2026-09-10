@@ -61,6 +61,45 @@ export const api = {
   listAuthorizedKeys: () => req('GET', '/api/remote/authorized-keys'),
   addAuthorizedKey: (key, comment) => req('POST', '/api/remote/authorized-keys', { key, comment }),
   removeAuthorizedKey: (key) => req('DELETE', `/api/remote/authorized-keys?key=${encodeURIComponent(key)}`),
+
+  // ---- タスク管理（Jira 取り込み / 環境セットアップ） ----
+  listTasks: () => req('GET', '/api/tasks'),
+  createLocalTask: (input) => req('POST', '/api/tasks', input),
+  nextLocalKey: () => req('GET', '/api/tasks/next-key'),
+  linkJira: (id, key) => req('POST', `/api/tasks/${id}/link-jira`, { key }),
+  getTask: (id) => req('GET', `/api/tasks/${id}`),
+  getTaskByKey: (key) => req('GET', `/api/tasks/by-key/${encodeURIComponent(key)}`),
+  previewTasks: (keys, templateId) => req('POST', '/api/tasks/preview', { keys, templateId: templateId || '' }),
+  importTasks: (keys, templateId, setup) =>
+    req('POST', '/api/tasks/import', { keys, templateId: templateId || '', setup: !!setup }),
+  syncTasks: () => req('POST', '/api/tasks/sync'),
+  syncTask: (id) => req('POST', `/api/tasks/${id}/sync`),
+  patchTask: (id, patch) => req('PATCH', `/api/tasks/${id}`, patch),
+  deleteTask: (id) => req('DELETE', `/api/tasks/${id}`),
+  startSetup: (id) => req('POST', `/api/tasks/${id}/setup`),
+  deleteWorkDir: (id) => req('POST', `/api/tasks/${id}/workdir/delete`),
+  // セットアップ実行
+  getSetupRun: (id) => req('GET', `/api/setup-runs/${id}`),
+  retrySetupRun: (id) => req('POST', `/api/setup-runs/${id}/retry`),
+  skipSetupStep: (id) => req('POST', `/api/setup-runs/${id}/skip`),
+  abortSetupRun: (id) => req('POST', `/api/setup-runs/${id}/abort`),
+  // 環境テンプレート
+  listTemplates: () => req('GET', '/api/templates'),
+  createTemplate: (input) => req('POST', '/api/templates', input),
+  updateTemplate: (id, input) => req('PUT', `/api/templates/${id}`, input),
+  deleteTemplate: (id) => req('DELETE', `/api/templates/${id}`),
+  // ベースクローン
+  listBaseClones: () => req('GET', '/api/base-clones'),
+  createBaseClone: (input) => req('POST', '/api/base-clones', input),
+  updateBaseClone: (id) => req('POST', `/api/base-clones/${id}/update`),
+  updateAllBaseClones: () => req('POST', '/api/base-clones/update'),
+  deleteBaseClone: (id, removeFiles) => req('DELETE', `/api/base-clones/${id}${removeFiles ? '?files=1' : ''}`),
+  // 設定
+  getTaskSettings: () => req('GET', '/api/task-settings'),
+  putTaskSettings: (s) => req('PUT', '/api/task-settings', s),
+  getJiraConfig: () => req('GET', '/api/jira/config'),
+  putJiraConfig: (input) => req('PUT', '/api/jira/config', input),
+  testJira: () => req('POST', '/api/jira/test'),
 }
 
 // レイアウトプリセットの定義（バックエンドの値と一致させる）。

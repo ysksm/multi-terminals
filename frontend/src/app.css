@@ -72,7 +72,79 @@ textarea {
 .app {
   display: grid;
   grid-template-columns: 260px 1fr;
+  grid-template-rows: auto 1fr;
   height: 100vh;
+}
+
+/* ---- App bar (最上部・全幅。アプリ全体の設定はここに集約) ---- */
+.appbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px 0 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.appbar h1 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  color: #fff;
+}
+.appbar-btn {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
+  font-size: 12px;
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.appbar-btn:hover:not(:disabled),
+.appbar-btn.open {
+  background: var(--panel-2);
+  border-color: var(--border);
+}
+.settings-menu-wrap {
+  position: relative;
+}
+.settings-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 220px;
+  z-index: 50;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+}
+.settings-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: transparent;
+  border-color: transparent;
+  padding: 6px 8px;
+}
+.settings-menu button:hover:not(:disabled) {
+  background: var(--accent-bg);
+  border-color: transparent;
+}
+.settings-menu .ic {
+  width: 16px;
+  text-align: center;
+}
+.settings-menu .hint {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 /* ---- Sidebar ---- */
@@ -82,19 +154,57 @@ textarea {
   padding: 14px;
   overflow-y: auto;
 }
-.sidebar h1 {
-  font-size: 16px;
-  margin: 0 0 16px;
-  color: #fff;
-}
 .sidebar h2 {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
-  margin: 18px 0 8px;
+  margin: 14px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
-.create {
+.sidebar section:first-child h2 {
+  margin-top: 0;
+}
+/* 見出しはボタン(クリックで開閉)。セクションが長くても他を押し出さないよう畳める */
+.sidebar .sec-toggle {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border-color: transparent;
+  padding: 2px 0;
+  text-align: left;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sidebar .sec-toggle:hover:not(:disabled) {
+  color: var(--text);
+  border-color: transparent;
+}
+.sidebar .chev {
+  font-size: 10px;
+  transition: transform 0.15s;
+}
+.sidebar section.collapsed .chev {
+  transform: rotate(-90deg);
+}
+.sidebar section.collapsed .sec-body {
+  display: none;
+}
+.sidebar h2 .count {
+  font-size: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 6px;
+  letter-spacing: 0;
+}
+.create .sec-body {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -106,6 +216,10 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* 1 セクションが伸びても他が見えなくならないよう高さ上限を付けて中でスクロール */
+  max-height: 40vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 .list li {
   display: flex;
@@ -139,7 +253,8 @@ textarea {
   padding: 0 3px;
   flex-shrink: 0;
 }
-/* エージェント(claude/codex)稼働状況バッジ: ● 実行中 / ⏸ 許可待ち */
+/* エージェント(claude/codex)稼働状況バッジ:
+   ⏸ blocked(応答待ち) / ● working(処理中) / ✓ done(完了・未確認) / ○ idle / ? unknown */
 .list .agent-badge {
   display: inline-flex;
   align-items: center;
@@ -151,11 +266,18 @@ textarea {
   padding: 0 5px;
   flex-shrink: 0;
 }
-.list .agent-st.active {
+.agent-st.working {
   color: #4caf50;
 }
-.list .agent-st.wait {
+.agent-st.blocked {
   color: #ffb300;
+}
+.agent-st.done {
+  color: #64b5f6;
+}
+.agent-st.idle,
+.agent-st.unknown {
+  color: var(--muted);
 }
 
 /* ---- Keyboard shortcuts help ---- */
@@ -168,15 +290,6 @@ kbd {
   border-radius: 4px;
   padding: 1px 5px;
   background: rgba(255, 255, 255, 0.04);
-}
-.shortcuts-open {
-  margin-top: 18px;
-  width: 100%;
-  text-align: left;
-  color: var(--muted);
-  display: flex;
-  align-items: center;
-  gap: 4px;
 }
 .shortcuts-overlay {
   position: fixed;
@@ -300,16 +413,29 @@ kbd {
   min-height: 0;
   overflow: hidden;
 }
+/* ヘッダは 1 行目にタイトル/ブランチ、2 行目に操作アイコンを並べる */
 .cell-head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   padding: 4px 8px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
 }
+.cell-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.cell-title-row .title-edit {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
 .cell-head .dir {
+  flex: 1;
+  min-width: 0;
   font-size: 12px;
   color: var(--muted);
   overflow: hidden;
@@ -507,15 +633,6 @@ kbd {
   flex-shrink: 0;
 }
 
-/* ---- Empty bar (no workspace selected) ---- */
-.empty-bar {
-  display: flex;
-  align-items: center;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--panel);
-}
-
 /* ---- Active pane highlight ---- */
 .cell.active-cell {
   border-color: var(--accent);
@@ -533,25 +650,98 @@ button.danger:hover:not(:disabled) {
   border-color: var(--danger);
 }
 
-/* ---- View switch (ワークスペース / アクティブ) ---- */
-.view-switch {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 6px;
+/* ---- Sidebar: アクティブ一覧(ワークスペースの下に常時表示) ---- */
+.active-list {
+  border-top: 1px solid var(--border);
+  margin-top: 14px;
 }
-.view-switch button {
+.active-list li .act-select {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
-  padding: 5px 4px;
-  white-space: nowrap;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: 6px;
+  row-gap: 2px;
+  align-items: center;
+  text-align: left;
+  padding: 5px 8px;
+}
+.active-list li .act-select.active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.act-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex-shrink: 0;
+}
+.act-dot.shell {
+  background: #22c55e;
+}
+.act-dot.working {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+}
+.act-dot.blocked {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+}
+.act-dot.done {
+  background: var(--accent);
+}
+.act-dot.idle,
+.act-dot.unknown {
+  background: transparent;
+  border: 1.5px solid var(--muted);
+}
+.act-title {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: #fff;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.view-switch button.active {
+.act-tag {
+  font-size: 10px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 5px;
+  white-space: nowrap;
+}
+.act-where {
+  grid-column: 2 / -1;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.act-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.act-foot .icon.active {
   border-color: var(--accent);
   background: var(--accent-bg);
   color: #fff;
+}
+.act-foot .inline-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.act-foot .inline-check input[type='checkbox'] {
+  width: auto;
+  margin: 0;
 }
 
 /* ---- Active terminals view ---- */
@@ -586,12 +776,6 @@ button.danger:hover:not(:disabled) {
   border-radius: 8px;
   padding: 0 5px;
 }
-.active-grid .agent-st.active {
-  color: #4caf50;
-}
-.active-grid .agent-st.wait {
-  color: #ffb300;
-}
 .toolbar .inline-check {
   display: flex;
   align-items: center;
@@ -603,4 +787,133 @@ button.danger:hover:not(:disabled) {
 .toolbar .inline-check input[type='checkbox'] {
   width: auto;
   margin: 0;
+}
+
+/* ---- Sidebar: タスク欄(進行中だけ最大 5 件) ---- */
+.sidebar h2 .sub {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  margin-left: 4px;
+  font-weight: 400;
+}
+.task-list li .task-select {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  column-gap: 6px;
+  row-gap: 2px;
+  align-items: center;
+  text-align: left;
+  padding: 5px 8px;
+}
+.task-list li .task-select.active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.task-list .task-key {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #4c9aff;
+}
+.task-list .task-key.local {
+  color: #c4b5fd;
+}
+.task-list .task-select .badge,
+.task-list .task-select .agent-badge {
+  justify-self: end;
+}
+.task-list .task-sum {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-list .more {
+  width: 100%;
+  margin-top: 6px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.task-list .more .n {
+  margin-left: auto;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.act-dot.preparing {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+}
+.act-dot.ready {
+  background: var(--accent);
+}
+.act-dot.none {
+  background: transparent;
+  border: 1.5px solid var(--muted);
+}
+
+/* ---- ⚙ メニューのグループ見出し ---- */
+.settings-menu .grp {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: 6px 8px 2px;
+}
+.settings-menu hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 6px 4px;
+}
+
+/* ---- ワークスペース画面のタスク帯 ---- */
+.task-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.task-strip .key {
+  font-family: ui-monospace, Menlo, monospace;
+  color: #4c9aff;
+}
+.task-strip .key.local {
+  color: #c4b5fd;
+}
+.task-strip .sum {
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-strip .pill {
+  font-size: 11px;
+  border-radius: 4px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.task-strip code {
+  font-family: ui-monospace, Menlo, monospace;
+}
+.task-strip .icon-link {
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.task-strip .icon-link:hover {
+  border-color: var(--accent);
 }

@@ -28,12 +28,19 @@ type GitOpCall struct {
 	Op  string // "pull" | "push" | "fetch"
 }
 
+// CreateBranchCall は FakeGitService.CreateBranch の呼び出し記録。
+type CreateBranchCall struct {
+	Dir        string
+	Branch     string
+	StartPoint string
+}
+
 // FakeGitService は port.GitService のテスト用実装。
 // Infos / Remotes に登録した値を返し、Clone は呼び出しを記録して Dest を返す。
 type FakeGitService struct {
 	mu          sync.Mutex
-	Infos       map[string]port.GitInfo       // dir -> info（未登録は IsRepo=false）
-	Remotes     map[string]string             // dir -> remote URL（未登録はエラー）
+	Infos       map[string]port.GitInfo // dir -> info（未登録は IsRepo=false）
+	Remotes     map[string]string       // dir -> remote URL（未登録はエラー）
 	Clones      []CloneCall
 	CloneErr    error
 	BranchLists map[string][]port.BranchInfo // dir -> branches
@@ -42,14 +49,20 @@ type FakeGitService struct {
 	CheckoutErr error
 	GitOps      []GitOpCall
 	OpErr       error // Pull/Push/Fetch 共通のエラー注入
+
+	CreateBranches   []CreateBranchCall
+	CreateBranchErr  error
+	DefaultBranches  map[string]string // dir -> 既定ブランチ(未登録は "main")
+	DefaultBranchErr error
 }
 
 // NewFakeGitService は空の FakeGitService を返す。
 func NewFakeGitService() *FakeGitService {
 	return &FakeGitService{
-		Infos:       make(map[string]port.GitInfo),
-		Remotes:     make(map[string]string),
-		BranchLists: make(map[string][]port.BranchInfo),
+		Infos:           make(map[string]port.GitInfo),
+		Remotes:         make(map[string]string),
+		BranchLists:     make(map[string][]port.BranchInfo),
+		DefaultBranches: make(map[string]string),
 	}
 }
 
@@ -112,3 +125,25 @@ func (f *FakeGitService) recordOp(dir, op string) error {
 func (f *FakeGitService) Pull(dir string) error  { return f.recordOp(dir, "pull") }
 func (f *FakeGitService) Push(dir string) error  { return f.recordOp(dir, "push") }
 func (f *FakeGitService) Fetch(dir string) error { return f.recordOp(dir, "fetch") }
+
+func (f *FakeGitService) CreateBranch(dir, branch, startPoint string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.CreateBranchErr != nil {
+		return f.CreateBranchErr
+	}
+	f.CreateBranches = append(f.CreateBranches, CreateBranchCall{Dir: dir, Branch: branch, StartPoint: startPoint})
+	return nil
+}
+
+func (f *FakeGitService) DefaultBranch(dir string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.DefaultBranchErr != nil {
+		return "", f.DefaultBranchErr
+	}
+	if b, ok := f.DefaultBranches[dir]; ok {
+		return b, nil
+	}
+	return "main", nil
+}

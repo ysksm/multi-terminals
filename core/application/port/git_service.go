@@ -43,4 +43,12 @@ type GitService interface {
 
 	// Fetch は全リモートを fetch --prune する。
 	Fetch(dir string) error
+
+	// CreateBranch は startPoint(例: origin/main)から branch を作って切り替える
+	// (git switch -c 相当)。同名ブランチが既にあれば Checkout と同じ挙動にする。
+	CreateBranch(dir, branch, startPoint string) error
+
+	// DefaultBranch は origin の既定ブランチ名(main / master など)を返す。
+	// 判定できなければエラー。
+	DefaultBranch(dir string) (string, error)
 }

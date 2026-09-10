@@ -12,7 +12,9 @@ import (
 	"github.com/ysksm/multi-terminals/core/application/command"
 	"github.com/ysksm/multi-terminals/core/application/query"
 	"github.com/ysksm/multi-terminals/core/application/session"
+	"github.com/ysksm/multi-terminals/core/application/taskmgmt"
 	"github.com/ysksm/multi-terminals/core/domain"
+	"github.com/ysksm/multi-terminals/core/domain/task"
 	"github.com/ysksm/multi-terminals/core/infrastructure/remoteterm"
 )
 
@@ -57,6 +59,8 @@ type Deps struct {
 	// key-management endpoints.
 	RemoteIdentityStore *remoteterm.IdentityStore
 	RemoteAuthKeys      *remoteterm.AuthorizedKeys
+	// Tasks はタスク管理(Jira 取り込み / 環境セットアップ)。nil なら /api/tasks 系を無効化。
+	Tasks *taskmgmt.Service
 }
 
 // NewMux registers all routes and returns the HTTP mux.
@@ -131,6 +135,9 @@ func NewMux(d Deps) *http.ServeMux {
 		mux.HandleFunc("DELETE /api/remote/authorized-keys", d.handleRemoveAuthorizedKey)
 	}
 
+	// タスク管理(server_tasks.go)
+	d.registerTaskRoutes(mux)
+
 	return mux
 }
 
@@ -157,6 +164,8 @@ func mapErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, domain.ErrWorkspaceNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 	case errors.Is(err, command.ErrSessionNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+	case errors.Is(err, task.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
 	case errors.As(err, &ve):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -694,6 +703,13 @@ func (d Deps) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
 	if err := d.DeleteWorkspace.Handle(r.Context(), command.DeleteWorkspaceCommand{WorkspaceID: id}); err != nil {
 		mapErr(w, err)
 		return
+	}
+	// 紐付いていたタスクがあれば参照を外す(フォルダは残す)
+	if d.Tasks != nil {
+		if err := d.Tasks.UnlinkWorkspace(r.Context(), id); err != nil {
+			mapErr(w, err)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

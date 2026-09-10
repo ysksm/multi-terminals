@@ -32,6 +32,8 @@ type workspaceRecord struct {
 	Panes            []paneRecord `json:"panes"`
 	LastActivePaneID *string      `json:"lastActivePaneId,omitempty"`
 	MaximizedPaneID  *string      `json:"maximizedPaneId,omitempty"`
+	// TaskID は紐付くタスク(任意)。追加フィールドなので schema version は据え置き。
+	TaskID string `json:"taskId,omitempty"`
 }
 
 // appStateRecord is the JSON DTO for the global application state file.

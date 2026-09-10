@@ -30,6 +30,8 @@ type WorkspaceDTO struct {
 	Panes            []PaneDTO `json:"panes"`
 	LastActivePaneID *string   `json:"lastActivePaneId,omitempty"`
 	MaximizedPaneID  *string   `json:"maximizedPaneId,omitempty"`
+	// TaskID は紐付くタスク(任意)。空なら省略。
+	TaskID string `json:"taskId,omitempty"`
 }
 
 // toWorkspaceDTO は domain.Workspace を WorkspaceDTO に変換する。
@@ -67,6 +69,7 @@ func toWorkspaceDTO(w *domain.Workspace) WorkspaceDTO {
 		Name:   w.Name().String(),
 		Layout: string(w.Layout()),
 		Panes:  panes,
+		TaskID: w.TaskID(),
 	}
 
 	if id, ok := w.LastActivePaneId(); ok {

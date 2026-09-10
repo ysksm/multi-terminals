@@ -37,6 +37,7 @@ func toRecord(w *domain.Workspace) workspaceRecord {
 		Name:    w.Name().String(),
 		Layout:  string(w.Layout()),
 		Panes:   paneRecs,
+		TaskID:  w.TaskID(),
 	}
 
 	if id, ok := w.LastActivePaneId(); ok {
@@ -150,6 +151,7 @@ func toDomain(rec workspaceRecord) (*domain.Workspace, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot reconstitute workspace %q: %w", rec.ID, err)
 	}
+	w.LinkTask(rec.TaskID)
 
 	return w, nil
 }

@@ -201,3 +201,38 @@ func (s *Service) Push(dir string) error { return gitNet(dir, "push") }
 
 // Fetch は全リモートを fetch --prune する。
 func (s *Service) Fetch(dir string) error { return gitNet(dir, "fetch", "--prune") }
+
+// CreateBranch は startPoint から branch を作って切り替える。既に同名の
+// ローカルブランチがあれば単に切り替える。
+func (s *Service) CreateBranch(dir, branch, startPoint string) error {
+	if _, err := git(dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch); err == nil {
+		return s.Checkout(dir, branch)
+	}
+	args := []string{"switch", "-c", branch}
+	if startPoint != "" {
+		args = append(args, "--", startPoint)
+	}
+	if _, err := git(dir, args...); err != nil {
+		return fmt.Errorf("gitcli: switch -c: %w", err)
+	}
+	return nil
+}
+
+// DefaultBranch は origin/HEAD の指すブランチ名を返す。origin/HEAD が未設定なら
+// リモートに問い合わせて設定を試み、それでも取れなければ main / master の存在で判定する。
+func (s *Service) DefaultBranch(dir string) (string, error) {
+	if out, err := git(dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		return strings.TrimPrefix(out, "origin/"), nil
+	}
+	if err := gitNet(dir, "remote", "set-head", "origin", "--auto"); err == nil {
+		if out, err := git(dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+			return strings.TrimPrefix(out, "origin/"), nil
+		}
+	}
+	for _, b := range []string{"main", "master"} {
+		if _, err := git(dir, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+b); err == nil {
+			return b, nil
+		}
+	}
+	return "", fmt.Errorf("gitcli: cannot determine default branch of %s", dir)
+}

@@ -6,11 +6,21 @@
   import { neighborSlot } from './lib/paneNav.js'
   import { cycleWorkspaceId, workspaceIdAt } from './lib/workspaceNav.js'
   import { SHORTCUT_GROUPS, paneShortcutAction } from './lib/shortcuts.js'
-  import { aggregateByWorkspace, connectAgentStatus } from './lib/agentStatus.js'
+  import { aggregateByWorkspace, connectAgentStatus, markSeen, nextDoneSet, withDone, STATE_LABEL, STATE_GLYPH } from './lib/agentStatus.js'
   import { collectActiveTerminals, gridDimensions } from './lib/activeTerminals.js'
+  import { parseHash, buildHash, sidebarTasks, TASK_STATE_LABEL, agentsForTask, sourceOf } from './lib/tasks.js'
+  import TaskList from './lib/tasks/TaskList.svelte'
+  import TaskImport from './lib/tasks/TaskImport.svelte'
+  import TaskDetail from './lib/tasks/TaskDetail.svelte'
+  import SetupRun from './lib/tasks/SetupRun.svelte'
+  import TaskSettings from './lib/tasks/TaskSettings.svelte'
 
   let workspaces = $state([])
-  let agentPanes = $state({}) // paneId → [{tool, state}]（サーバから push）
+  let rawAgentPanes = $state({}) // paneId → [{tool, state}]（サーバから push。working/blocked/idle/unknown）
+  // 見ていないペインが working/blocked → idle に落ち着いたら「完了(未確認)」として
+  // done を付ける。そのペインをアクティブにしたら外れる(herdr の done/seen と同じ考え方)。
+  let donePaneIds = $state(new Set())
+  const agentPanes = $derived(withDone(rawAgentPanes, donePaneIds))
   const agentByWs = $derived(aggregateByWorkspace(agentPanes, workspaces))
   let current = $state(null) // 選択中の WorkspaceDTO
   let openedPaneIds = $state(new Set()) // 現ワークスペースでライブセッションを持つ pane
@@ -68,6 +78,224 @@
   // サイドバー折りたたみ
   let sidebarCollapsed = $state(localStorage.getItem('mt.sidebarCollapsed') === '1')
 
+  // サイドバー各セクション(新規作成 / ワークスペース / アクティブ)の開閉。
+  // どれかが長くなっても他が押し出されないよう、見出しクリックで畳める。
+  let collapsedSections = $state(loadCollapsedSections())
+  function loadCollapsedSections() {
+    try {
+      const v = JSON.parse(localStorage.getItem('mt.sidebarSections') || '{}')
+      return v && typeof v === 'object' ? v : {}
+    } catch {
+      return {}
+    }
+  }
+  function toggleSection(name) {
+    collapsedSections = { ...collapsedSections, [name]: !collapsedSections[name] }
+    localStorage.setItem('mt.sidebarSections', JSON.stringify(collapsedSections))
+  }
+
+  // 右上の ⚙ 設定メニュー(リモート設定 / ショートカット一覧 / タスク環境)
+  let showSettingsMenu = $state(false)
+
+  // ---- タスク管理(Jira 取り込み / 環境セットアップ) ----
+  // 画面は URL ハッシュで決める(#tasks / #tasks/KEY / #tasks/KEY/setup / #settings/xxx / #ws)。
+  // ハッシュが無ければ前回の画面(localStorage)。
+  let route = $state(initialRoute())
+  let tasks = $state([]) // /api/tasks の TaskDTO[]
+  let tasksLoaded = $state(false)
+  let templates = $state([])
+  let baseClones = $state([])
+  let taskSettings = $state(null) // /api/task-settings(ローカルタスクのステータス定義など)
+  let jiraReady = $state(false) // Jira 接続が設定済みか(追加モーダルの既定タブ)
+  const localStatuses = $derived(taskSettings?.localTask?.statuses || [])
+  let currentTask = $state(null) // 詳細 / セットアップ画面で表示中のタスク
+  let setupRunId = $state('') // セットアップ画面の run
+  let showImport = $state(false)
+  let lastTaskSync = $state(localStorage.getItem('mt.lastTaskSync') || '')
+  const sidebarTaskItems = $derived(sidebarTasks(tasks))
+  // ワークスペース画面のタスク帯(紐付くタスクがあるときだけ)
+  const currentTaskStrip = $derived(current?.taskId ? tasks.find((t) => t.id === current.taskId) || null : null)
+
+  function initialRoute() {
+    if (location.hash && location.hash !== '#') return parseHash(location.hash)
+    try {
+      const saved = localStorage.getItem('mt.route')
+      if (saved) return parseHash(saved)
+    } catch {
+      // 無視
+    }
+    return { screen: 'workspace' }
+  }
+
+  // navigate は画面を切り替える。ハッシュを書き換え、hashchange で route に反映される。
+  function navigate(r) {
+    const h = buildHash(r)
+    if (location.hash === h) {
+      route = r
+      return
+    }
+    location.hash = h
+  }
+
+  function onHashChange() {
+    route = parseHash(location.hash)
+  }
+
+  async function refreshTasks() {
+    tasks = (await api.listTasks()) || []
+    tasksLoaded = true
+  }
+
+  async function refreshTaskMeta() {
+    const [tpls, bcs, st, jc] = await Promise.all([
+      api.listTemplates(),
+      api.listBaseClones(),
+      api.getTaskSettings().catch(() => null),
+      api.getJiraConfig().catch(() => null),
+    ])
+    templates = tpls || []
+    baseClones = bcs || []
+    if (st) taskSettings = st
+    jiraReady = !!(jc && jc.hasToken && jc.baseUrl)
+  }
+
+  // 一覧のセレクトからローカルタスクのステータスを変える
+  async function changeLocalStatus(t, statusId) {
+    try {
+      const updated = await api.patchTask(t.id, {
+        local: {
+          summary: t.jira?.summary || '',
+          description: t.jira?.description || '',
+          priority: t.jira?.priority || '',
+          labels: t.local?.labels || [],
+          links: t.local?.links || [],
+          statusId,
+        },
+      })
+      onTaskChanged(updated)
+    } catch (e) {
+      error = e.message
+    }
+  }
+
+  // 手動作成の完了。セットアップ付きなら進捗画面へ、そうでなければ詳細へ
+  async function onLocalCreated(res, setup) {
+    showImport = false
+    await refreshTasks().catch((e) => (error = e.message))
+    const t = res?.task
+    if (!t) return
+    currentTask = t
+    if (setup && res.runId) {
+      setupRunId = res.runId
+      navigate({ screen: 'setup', key: t.jiraKey })
+    } else {
+      navigate({ screen: 'task', key: t.jiraKey })
+    }
+  }
+
+  // 詳細 / セットアップ画面のタスクをハッシュの番号から読み直す
+  async function loadCurrentTask(key) {
+    try {
+      currentTask = await api.getTaskByKey(key)
+      if (currentTask?.setupRunId) setupRunId = currentTask.setupRunId
+    } catch (e) {
+      error = e.message
+      currentTask = null
+    }
+  }
+
+  // 画面が変わったときに必要なデータを取り直す
+  $effect(() => {
+    const r = route
+    try {
+      localStorage.setItem('mt.route', buildHash(r))
+    } catch {
+      // 無視
+    }
+    if (r.screen === 'tasks') {
+      refreshTasks().catch((e) => (error = e.message))
+      refreshTaskMeta().catch(() => {})
+    } else if (r.screen === 'task' || r.screen === 'setup') {
+      loadCurrentTask(r.key)
+      refreshTaskMeta().catch(() => {})
+    } else if (r.screen === 'settings') {
+      // 設定画面で変えたステータス定義などを一覧・詳細へ反映するため、離脱時に取り直す
+      return () => refreshTaskMeta().catch(() => {})
+    }
+  })
+
+  // タスクからワークスペースを開く
+  async function openTaskWorkspace(t) {
+    if (!t?.workspaceId) return
+    await select(t.workspaceId)
+  }
+
+  // セットアップを開始して進捗画面へ
+  async function startSetupFor(t) {
+    try {
+      const res = await api.startSetup(t.id)
+      setupRunId = res.runId
+      currentTask = t
+      navigate({ screen: 'setup', key: t.jiraKey })
+      refreshTasks().catch(() => {})
+    } catch (e) {
+      error = e.message
+    }
+  }
+
+  function resumeSetup(t) {
+    if (t.setupRunId) setupRunId = t.setupRunId
+    currentTask = t
+    navigate({ screen: 'setup', key: t.jiraKey })
+  }
+
+  async function onImported(res, setup) {
+    showImport = false
+    await refreshTasks().catch((e) => (error = e.message))
+    const first = res?.tasks?.[0]
+    if (setup && first && res.runIds?.[first.jiraKey]) {
+      setupRunId = res.runIds[first.jiraKey]
+      currentTask = first
+      navigate({ screen: 'setup', key: first.jiraKey })
+    }
+  }
+
+  async function syncAllTasks() {
+    await guard(async () => {
+      const res = await api.syncTasks()
+      lastTaskSync = new Date().toISOString()
+      localStorage.setItem('mt.lastTaskSync', lastTaskSync)
+      await refreshTasks()
+      if (res?.errors?.length) error = res.errors.join(' / ')
+    })
+  }
+
+  async function deleteTaskWorkDir(t) {
+    await guard(async () => {
+      await api.deleteWorkDir(t.id)
+      if (current?.id === t.workspaceId) current = null
+      await refreshList()
+      await refreshTasks()
+      if (currentTask?.id === t.id) await loadCurrentTask(t.jiraKey)
+    })
+  }
+
+  // 詳細画面での更新を一覧・帯にも反映する
+  function onTaskChanged(updated) {
+    if (currentTask?.id === updated.id) currentTask = updated
+    tasks = tasks.map((t) => (t.id === updated.id ? updated : t))
+    // Jira 紐付けで番号が変わったらハッシュも追従させる
+    if (route.screen === 'task' && currentTask?.id === updated.id && route.key !== updated.jiraKey) {
+      navigate({ screen: 'task', key: updated.jiraKey })
+    }
+  }
+
+  function onSetupFinished() {
+    refreshTasks().catch(() => {})
+    refreshList().catch(() => {})
+    if (route.screen === 'setup' && route.key) loadCurrentTask(route.key)
+  }
+
   // ショートカット一覧モーダル
   let showShortcuts = $state(false)
 
@@ -115,6 +343,7 @@
   }
 
   async function select(id) {
+    if (route.screen !== 'workspace') navigate({ screen: 'workspace' })
     await guard(async () => {
       current = await api.getWorkspace(id)
       activePaneId = current?.lastActivePaneId ?? current?.panes?.[0]?.id ?? null
@@ -315,6 +544,7 @@
   function setViewMode(mode) {
     viewMode = mode
     localStorage.setItem('mt.viewMode', mode)
+    if (route.screen !== 'workspace') navigate({ screen: 'workspace' })
     if (mode === 'active') refreshActiveView()
   }
 
@@ -348,6 +578,18 @@
       e.preventDefault()
       e.stopPropagation()
       showRemoteSettings = false
+      return
+    }
+    if (showImport && e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      showImport = false
+      return
+    }
+    if (showSettingsMenu && e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      showSettingsMenu = false
       return
     }
     // Ctrl+Shift+A: アクティブビュー（起動中のターミナル集約）と通常表示を切替
@@ -543,7 +785,7 @@
     }
   }
 
-  // ペインの作業ディレクトリを Finder / VS Code で開く（バックエンド経由）。
+  // ペインの作業ディレクトリを Finder / VS Code / ブラウザ / 別プロセスのターミナルで開く（バックエンド経由）。
   function openPaneIn(paneId, target) {
     guard(async () => {
       await api.openPaneIn(current.id, paneId, target)
@@ -569,26 +811,38 @@
       }
     })
     window.addEventListener('keydown', onKey, true)
-    const stopAgentStatus = connectAgentStatus((p) => (agentPanes = p))
+    window.addEventListener('hashchange', onHashChange)
+    refreshTasks().catch(() => {}) // サイドバーのタスク欄用(タスク機能が無効なら空のまま)
+    const stopAgentStatus = connectAgentStatus((p) => {
+      donePaneIds = nextDoneSet(donePaneIds, rawAgentPanes, p, activePaneId)
+      rawAgentPanes = p
+    })
     return () => {
       window.removeEventListener('keydown', onKey, true)
+      window.removeEventListener('hashchange', onHashChange)
       stopAgentStatus()
     }
   })
 
-  // アクティブビュー表示中は、他ワークスペースで起動/終了したペインを拾うために
-  // 一覧とセッションを定期的に取り直す（エージェント状態は SSE で届くので対象外）。
+  // ペインをアクティブにしたら、その「完了(未確認)」印を消す。
   $effect(() => {
-    if (viewMode !== 'active') return
+    donePaneIds = markSeen(donePaneIds, activePaneId)
+  })
+
+  // サイドバーのアクティブ一覧(と集約ビュー)は他ワークスペースで起動/終了したペインも
+  // 並べるため、一覧とセッションを定期的に取り直す（エージェント状態は SSE で届くので対象外）。
+  // タブが裏に回っている間は止める。
+  $effect(() => {
     // 前回の取得が 3 秒以内に終わらないときは、リクエストの重複と
     // 到着順の入れ替わりによる状態の巻き戻りを避けるためにこの周期を飛ばす。
     let inFlight = false
     const timer = setInterval(async () => {
-      if (inFlight) return
+      if (inFlight || document.hidden) return
       inFlight = true
       try {
         await refreshList()
         await syncLiveSessions()
+        if (tasksLoaded) await refreshTasks()
       } catch {
         // サーバ再起動中など。次回の周期に任せる。
       } finally {
@@ -613,40 +867,145 @@
   })
 </script>
 
-<div class="app" class:sidebar-collapsed={sidebarCollapsed}>
-  <aside class="sidebar">
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+<div
+  class="app"
+  class:sidebar-collapsed={sidebarCollapsed}
+  onclick={(e) => {
+    // ⚙ メニューの外をクリックしたら閉じる
+    if (showSettingsMenu && !e.target.closest?.('.settings-menu-wrap')) showSettingsMenu = false
+  }}
+>
+  <header class="appbar">
+    <button
+      class="icon sidebar-toggle"
+      onclick={toggleSidebar}
+      aria-label="サイドバー切替"
+      aria-expanded={!sidebarCollapsed}
+    >☰</button>
     <h1>multi-terminals</h1>
-
-    <div class="view-switch">
+    <span class="spacer"></span>
+    <button
+      class="appbar-btn"
+      title="ショートカット一覧 (⌘/)"
+      aria-label="ショートカット一覧"
+      onclick={() => (showShortcuts = true)}
+    ><kbd>⌘</kbd><kbd>/</kbd></button>
+    <div class="settings-menu-wrap">
       <button
-        class:active={viewMode === 'workspace'}
-        onclick={() => setViewMode('workspace')}
-        title="ワークスペースのレイアウト表示"
-      >🗂 ワークスペース</button>
-      <button
-        class:active={viewMode === 'active'}
-        onclick={() => setViewMode('active')}
-        title="起動中のターミナルだけを全ワークスペース横断で集約 (Ctrl+Shift+A)"
-      >⚡ アクティブ</button>
+        class="appbar-btn"
+        class:open={showSettingsMenu}
+        aria-haspopup="menu"
+        aria-expanded={showSettingsMenu}
+        title="設定"
+        onclick={() => (showSettingsMenu = !showSettingsMenu)}
+      >⚙ 設定 ▾</button>
+      {#if showSettingsMenu}
+        <div class="settings-menu" role="menu" aria-label="設定">
+          <div class="grp">タスク環境</div>
+          <button role="menuitem" onclick={() => { showSettingsMenu = false; navigate({ screen: 'settings', panel: 'templates' }) }}><span class="ic">🧩</span>環境テンプレート</button>
+          <button role="menuitem" onclick={() => { showSettingsMenu = false; navigate({ screen: 'settings', panel: 'base' }) }}><span class="ic">⧉</span>ベースクローン</button>
+          <button role="menuitem" onclick={() => { showSettingsMenu = false; navigate({ screen: 'settings', panel: 'jira' }) }}><span class="ic">🔗</span>Jira 接続</button>
+          <button role="menuitem" onclick={() => { showSettingsMenu = false; navigate({ screen: 'settings', panel: 'local' }) }}><span class="ic">📝</span>ローカルタスク</button>
+          <button role="menuitem" onclick={() => { showSettingsMenu = false; navigate({ screen: 'settings', panel: 'general' }) }}><span class="ic">⚙</span>セットアップ設定</button>
+          <hr />
+          <div class="grp">このアプリ</div>
+          <button
+            role="menuitem"
+            onclick={() => {
+              showSettingsMenu = false
+              openRemoteSettings()
+            }}
+          ><span class="ic">🔑</span>リモート設定</button>
+          <button
+            role="menuitem"
+            onclick={() => {
+              showSettingsMenu = false
+              showShortcuts = true
+            }}
+          ><span class="ic">⌨</span>ショートカット一覧<span class="hint">⌘/</span></button>
+        </div>
+      {/if}
     </div>
+  </header>
 
-    <section class="create">
-      <h2>新規ワークスペース</h2>
-      <input placeholder="名前" bind:value={newName} />
-      <select bind:value={newLayout}>
-        {#each LAYOUTS as l}
-          <option value={l.value}>{l.label}</option>
-        {/each}
-      </select>
-      <button onclick={createWorkspace} disabled={busy}>作成</button>
+  <aside class="sidebar">
+    <!-- 進行中(作業中 / 準備中 / 環境あり)のタスクだけ最大 5 件。全件はメインの一覧 -->
+    <section class="list task-list" class:collapsed={collapsedSections.tasks}>
+      <h2>
+        <button class="sec-toggle" aria-expanded={!collapsedSections.tasks} onclick={() => toggleSection('tasks')}>
+          <span class="chev">▾</span>タスク<span class="sub">· 進行中</span>
+        </button>
+        <span class="count">{sidebarTaskItems.length} / {tasks.length}</span>
+      </h2>
+      <div class="sec-body">
+        {#if tasks.length === 0}
+          <p class="muted">まだありません</p>
+        {:else if sidebarTaskItems.length === 0}
+          <p class="muted">進行中のタスクはありません</p>
+        {:else}
+          <ul>
+            {#each sidebarTaskItems as t (t.id)}
+              {@const agents = agentsForTask(t, workspaces, agentPanes)}
+              <li>
+                <button
+                  class="task-select"
+                  class:active={route.screen !== 'workspace' ? currentTask?.id === t.id : current?.taskId === t.id}
+                  title="{t.jiraKey} {t.jira?.summary || ''}"
+                  onclick={() => (t.workspaceId && t.effectiveState !== 'preparing' ? openTaskWorkspace(t) : navigate({ screen: 'task', key: t.jiraKey }))}
+                >
+                  <span class="act-dot {t.effectiveState}"></span>
+                  <span class="task-key" class:local={sourceOf(t) === 'local'}>{t.jiraKey}</span>
+                  {#if agents.length > 0}
+                    {#each agents as a (a.tool)}
+                      <span class="agent-badge">
+                        {a.tool}
+                        {#if a.blocked}<span class="agent-st blocked">{STATE_GLYPH.blocked}{a.blocked}</span>{/if}
+                        {#if a.working}<span class="agent-st working">{STATE_GLYPH.working}{a.working}</span>{/if}
+                        {#if a.done}<span class="agent-st done">{STATE_GLYPH.done}{a.done}</span>{/if}
+                      </span>
+                    {/each}
+                  {:else}
+                    <span class="badge">{TASK_STATE_LABEL[t.effectiveState] || t.effectiveState}</span>
+                  {/if}
+                  <span class="task-sum">{t.jira?.summary || ''}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <button class="more" onclick={() => navigate({ screen: 'tasks' })}>📋 すべてのタスク <span class="n">{tasks.length} →</span></button>
+      </div>
     </section>
 
-    <section class="list">
-      <h2>ワークスペース</h2>
+    <section class="create" class:collapsed={collapsedSections.create}>
+      <h2>
+        <button class="sec-toggle" aria-expanded={!collapsedSections.create} onclick={() => toggleSection('create')}>
+          <span class="chev">▾</span>新規ワークスペース
+        </button>
+      </h2>
+      <div class="sec-body">
+        <input placeholder="名前" bind:value={newName} />
+        <select bind:value={newLayout}>
+          {#each LAYOUTS as l}
+            <option value={l.value}>{l.label}</option>
+          {/each}
+        </select>
+        <button onclick={createWorkspace} disabled={busy}>作成</button>
+      </div>
+    </section>
+
+    <section class="list" class:collapsed={collapsedSections.workspaces}>
+      <h2>
+        <button class="sec-toggle" aria-expanded={!collapsedSections.workspaces} onclick={() => toggleSection('workspaces')}>
+          <span class="chev">▾</span>ワークスペース
+        </button>
+        <span class="count">{workspaces.length}</span>
+      </h2>
       {#if workspaces.length === 0}
-        <p class="muted">まだありません</p>
+        <p class="muted sec-body">まだありません</p>
       {/if}
-      <ul>
+      <ul class="sec-body">
         {#each workspaces as w, i}
           <li>
             <button class="ws-select" class:active={current?.id === w.id} onclick={() => select(w.id)}>
@@ -654,10 +1013,16 @@
               <span class="name">{w.name}</span>
               {#if agentByWs.get(w.id)}
                 {#each agentByWs.get(w.id) as a (a.tool)}
-                  <span class="agent-badge" title="{a.tool}: 実行中 {a.active} / 許可待ち {a.wait}">
+                  <span
+                    class="agent-badge"
+                    title="{a.tool}: 応答待ち {a.blocked} / 処理中 {a.working} / 完了(未確認) {a.done} / 入力待ち {a.idle} / 不明 {a.unknown}"
+                  >
                     {a.tool}
-                    {#if a.active > 0}<span class="agent-st active">●{a.active}</span>{/if}
-                    {#if a.wait > 0}<span class="agent-st wait">⏸{a.wait}</span>{/if}
+                    {#if a.blocked > 0}<span class="agent-st blocked">{STATE_GLYPH.blocked}{a.blocked}</span>{/if}
+                    {#if a.working > 0}<span class="agent-st working">{STATE_GLYPH.working}{a.working}</span>{/if}
+                    {#if a.done > 0}<span class="agent-st done">{STATE_GLYPH.done}{a.done}</span>{/if}
+                    {#if a.idle > 0}<span class="agent-st idle">{STATE_GLYPH.idle}{a.idle}</span>{/if}
+                    {#if a.unknown > 0}<span class="agent-st unknown">{STATE_GLYPH.unknown}{a.unknown}</span>{/if}
                   </span>
                 {/each}
               {/if}
@@ -690,12 +1055,67 @@
       </ul>
     </section>
 
-    <button class="shortcuts-open" onclick={openRemoteSettings}>
-      🔑 リモート設定
-    </button>
-    <button class="shortcuts-open" onclick={() => (showShortcuts = true)}>
-      <kbd>⌘</kbd><kbd>/</kbd> ショートカット一覧
-    </button>
+    <!-- 起動中のターミナルをワークスペース横断で常時一覧表示（タブ切替ではなくワークスペースの下に置く） -->
+    <section class="list active-list" class:collapsed={collapsedSections.active}>
+      <h2>
+        <button class="sec-toggle" aria-expanded={!collapsedSections.active} onclick={() => toggleSection('active')}>
+          <span class="chev">▾</span>⚡ アクティブ
+        </button>
+        <span class="count">{activeTerminals.length}</span>
+      </h2>
+      <div class="sec-body">
+        {#if activeTerminals.length === 0}
+          <p class="muted">
+            {activeAgentOnly ? 'claude / codex 稼働中のターミナルはありません' : '起動中のターミナルはありません'}
+          </p>
+        {:else}
+          <ul>
+            {#each activeTerminals as t (t.paneId)}
+              <li>
+                <button
+                  class="act-select"
+                  class:active={t.paneId === activePaneId && viewMode === 'workspace' && current?.id === t.workspaceId}
+                  title="{t.workspaceName} / {t.directory}{t.remoteHost ? ` (リモート: ${t.remoteHost})` : ''}"
+                  onclick={() => jumpToPane(t)}
+                >
+                  <span class="act-dot {t.status}"></span>
+                  <span class="act-title">{t.title || t.directory}</span>
+                  {#if t.agents.length > 0}
+                    {#each t.agents as a (a.tool)}
+                      <span class="agent-badge" title="{a.tool}: {STATE_LABEL[a.state] || a.state}">
+                        {a.tool}
+                        <span class="agent-st {a.state}">{STATE_GLYPH[a.state] || '?'}</span>
+                      </span>
+                    {/each}
+                  {:else if t.remoteHost}
+                    <span class="act-tag">🖥 {t.remoteHost}</span>
+                  {/if}
+                  <span class="act-where">{t.workspaceName} · pane {t.slot}</span>
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        <div class="act-foot">
+          <label class="inline-check">
+            <input
+              type="checkbox"
+              checked={activeAgentOnly}
+              onchange={(e) => toggleAgentOnly(e.currentTarget.checked)}
+            />
+            エージェントのみ
+          </label>
+          <span class="spacer"></span>
+          <button
+            class="icon"
+            class:active={viewMode === 'active'}
+            title="起動中のターミナルだけを 1 画面に集約 (Ctrl+Shift+A)"
+            aria-pressed={viewMode === 'active'}
+            onclick={() => setViewMode(viewMode === 'active' ? 'workspace' : 'active')}
+          >⤢ 集約表示</button>
+        </div>
+      </div>
+    </section>
   </aside>
 
   <main class="workspace">
@@ -703,15 +1123,68 @@
       <div class="error" role="alert">{error}</div>
     {/if}
 
-    {#if viewMode === 'active'}
+    {#if route.screen === 'tasks'}
+      <TaskList
+        {tasks}
+        {workspaces}
+        {agentPanes}
+        {busy}
+        lastSync={lastTaskSync}
+        {localStatuses}
+        onStatusChange={changeLocalStatus}
+        onOpen={openTaskWorkspace}
+        onDetail={(t) => navigate({ screen: 'task', key: t.jiraKey })}
+        onImport={() => (showImport = true)}
+        onSync={syncAllTasks}
+        onSetup={startSetupFor}
+        onResume={resumeSetup}
+        onDeleteWorkDir={deleteTaskWorkDir}
+      />
+    {:else if route.screen === 'task'}
+      {#if currentTask}
+        <TaskDetail
+          task={currentTask}
+          {templates}
+          {baseClones}
+          {localStatuses}
+          {busy}
+          onBack={() => navigate({ screen: 'tasks' })}
+          onOpenWorkspace={openTaskWorkspace}
+          onSetup={startSetupFor}
+          onResume={resumeSetup}
+          onChanged={onTaskChanged}
+          onDeleted={() => { currentTask = null; refreshTasks().catch(() => {}); navigate({ screen: 'tasks' }) }}
+          onDeleteWorkDir={deleteTaskWorkDir}
+          onError={(m) => (error = m)}
+        />
+      {:else}
+        <div class="toolbar"><button class="icon" onclick={() => navigate({ screen: 'tasks' })}>← タスク</button><strong>{route.key}</strong></div>
+        <div class="empty">タスクが見つかりません</div>
+      {/if}
+    {:else if route.screen === 'setup'}
+      {#if setupRunId}
+        <SetupRun
+          runId={setupRunId}
+          task={currentTask}
+          onBack={() => navigate(currentTask ? { screen: 'task', key: currentTask.jiraKey } : { screen: 'tasks' })}
+          onOpenWorkspace={(id) => select(id)}
+          onFinished={onSetupFinished}
+          onError={(m) => (error = m)}
+        />
+      {:else}
+        <div class="toolbar"><button class="icon" onclick={() => navigate({ screen: 'tasks' })}>← タスク</button><strong>{route.key}</strong></div>
+        <div class="empty">セットアップの実行記録がありません</div>
+      {/if}
+    {:else if route.screen === 'settings'}
+      <div class="toolbar">
+        <strong>設定</strong>
+        <span class="spacer"></span>
+        <button class="icon" onclick={() => navigate(current ? { screen: 'workspace' } : { screen: 'tasks' })}>✕ 閉じる</button>
+      </div>
+      <TaskSettings panel={route.panel} onNavigate={(p) => navigate({ screen: 'settings', panel: p })} onError={(m) => (error = m)} />
+    {:else if viewMode === 'active'}
       <!-- 全ワークスペース横断で、起動中のターミナルだけを 1 画面に集約する -->
       <div class="toolbar">
-        <button
-          class="icon sidebar-toggle"
-          onclick={toggleSidebar}
-          aria-label="サイドバー切替"
-          aria-expanded={!sidebarCollapsed}
-        >☰</button>
         <strong>アクティブなターミナル</strong>
         <label class="inline-check">
           <input
@@ -748,10 +1221,10 @@
                 {#each t.agents as a (a.tool)}
                   <span
                     class="agent-badge"
-                    title="{a.tool}: {a.state === 'wait' ? '許可待ち' : '実行中'}"
+                    title="{a.tool}: {STATE_LABEL[a.state] || a.state}{a.rule ? ` (${a.rule})` : ''}"
                   >
                     {a.tool}
-                    <span class="agent-st {a.state}">{a.state === 'wait' ? '⏸' : '●'}</span>
+                    <span class="agent-st {a.state}">{STATE_GLYPH[a.state] || '?'}</span>
                   </span>
                 {/each}
                 <span class="cell-actions">
@@ -776,23 +1249,9 @@
         </div>
       {/if}
     {:else if !current}
-      <div class="empty-bar">
-        <button
-          class="icon sidebar-toggle"
-          onclick={toggleSidebar}
-          aria-label="サイドバー切替"
-          aria-expanded={!sidebarCollapsed}
-        >☰</button>
-      </div>
       <div class="empty">左でワークスペースを選択 / 作成してください</div>
     {:else}
       <div class="toolbar">
-        <button
-          class="icon sidebar-toggle"
-          onclick={toggleSidebar}
-          aria-label="サイドバー切替"
-          aria-expanded={!sidebarCollapsed}
-        >☰</button>
         <strong>{current.name}</strong>
         <select
           value={current.layout}
@@ -810,6 +1269,21 @@
         <span class="spacer"></span>
         <span class="muted">{current.panes.length} / {layout.capacity} ペイン</span>
       </div>
+      {#if currentTaskStrip}
+        <div class="task-strip">
+          <span class="key" class:local={sourceOf(currentTaskStrip) === 'local'}>{currentTaskStrip.jiraKey}</span>
+          <span class="sum">{currentTaskStrip.jira?.summary || ''}</span>
+          <span class="pill">{currentTaskStrip.jira?.status || '—'}</span>
+          {#if currentTaskStrip.env?.branch}<span class="muted">· <code>{currentTaskStrip.env.branch}</code></span>{/if}
+          <span class="spacer"></span>
+          <button class="icon" onclick={() => navigate({ screen: 'task', key: currentTaskStrip.jiraKey })}>タスク詳細</button>
+          {#if currentTaskStrip.jira?.url}
+            <a class="icon-link" href={currentTaskStrip.jira.url} target="_blank" rel="noopener">Jira で開く ↗</a>
+          {:else if currentTaskStrip.local?.links?.[0]}
+            <a class="icon-link" href={currentTaskStrip.local.links[0]} target="_blank" rel="noopener">🔗 リンクを開く ↗</a>
+          {/if}
+        </div>
+      {/if}
 
       <div
         class="grid"
@@ -819,6 +1293,7 @@
           <div class="cell" class:active-cell={cell.pane && cell.pane.id === activePaneId}>
             {#if cell.pane}
               <div class="cell-head">
+                <div class="cell-title-row">
                 {#if editingTitlePaneId === cell.pane.id}
                   <input
                     class="title-edit"
@@ -864,17 +1339,19 @@
                     {/if}
                   </span>
                 {/if}
-                <span class="cell-actions">
+                </div>
+                <div class="cell-actions">
                   <button class="icon" title="Finderで開く" onclick={() => openPaneIn(cell.pane.id, 'finder')}>📁</button>
                   <button class="icon" title="VSCodeで開く" onclick={() => openPaneIn(cell.pane.id, 'vscode')}>{'</>'}</button>
                   {#if paneGit[cell.pane.id]?.isRepo}
-                    <button class="icon" title="リモート(GitHub)を開く" onclick={() => openPaneIn(cell.pane.id, 'github')}>🌐</button>
+                    <button class="icon" title="リポジトリをブラウザで開く" onclick={() => openPaneIn(cell.pane.id, 'github')}>🌐</button>
                   {/if}
-                  <button class="icon" title="編集" onclick={() => startEditPane(cell.pane)}>✎</button>
-                  <button class="icon" title="このペインの設定をコピー" onclick={() => copyPaneConfig(cell.pane)}>⧉</button>
+                  <button class="icon" title="別プロセスのターミナルで開く" onclick={() => openPaneIn(cell.pane.id, 'terminal')}>⧉</button>
+                  <button class="icon" title="編集" onclick={() => startEditPane(cell.pane)}>⚙</button>
+                  <button class="icon" title="このペインの設定をコピー" onclick={() => copyPaneConfig(cell.pane)}>📋</button>
                   <button class="icon" title="最大化/戻す" onclick={() => toggleMaximize(cell.pane.id)}>⤢</button>
-                  <button class="icon" title="削除" onclick={() => removePane(cell.pane.id)}>✕</button>
-                </span>
+                  <button class="icon" title="閉じる" onclick={() => removePane(cell.pane.id)}>✕</button>
+                </div>
               </div>
               <div class="cell-body">
                 {#if editingPaneId === cell.pane.id}
@@ -988,6 +1465,10 @@
       </div>
     {/if}
   </main>
+
+  {#if showImport}
+    <TaskImport {templates} {jiraReady} {localStatuses} onClose={() => (showImport = false)} onImported={onImported} onCreated={onLocalCreated} onError={(m) => (error = m)} />
+  {/if}
 
   {#if showRemoteSettings}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
