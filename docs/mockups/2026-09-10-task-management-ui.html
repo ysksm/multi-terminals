@@ -1,0 +1,1142 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>multi-terminals タスク管理案</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* 既存 frontend/src/app.css のトークンを踏襲（アプリはダーク固定） */
+  :root {
+    --bg: #14161a;
+    --panel: #1b1e24;
+    --panel-2: #21252c;
+    --panel-3: #282d36;
+    --border: #2c313a;
+    --border-2: #3a404b;
+    --text: #d6dae0;
+    --text-strong: #ffffff;
+    --muted: #8a909a;
+    --accent: #3b82f6;
+    --accent-bg: rgba(59, 130, 246, 0.15);
+    --good: #22c55e;
+    --good-bg: rgba(34, 197, 94, 0.14);
+    --warn: #f59e0b;
+    --warn-bg: rgba(245, 158, 11, 0.14);
+    --danger: #ef4444;
+    --danger-bg: rgba(239, 68, 68, 0.14);
+    --jira: #4c9aff;
+    --sans: system-ui, 'Segoe UI', Roboto, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0e1013;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  code, kbd, .mono { font-family: var(--mono); font-size: 12px; }
+  button {
+    font-family: inherit; cursor: pointer;
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+    border-radius: 6px; padding: 6px 10px; font-size: 13px; line-height: 1.3;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.icon { padding: 2px 6px; font-size: 12px; }
+  button.danger { color: var(--danger); }
+  button.ghost { background: transparent; }
+  input, select, textarea {
+    font-family: inherit; background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 13px; width: 100%;
+  }
+  textarea { resize: vertical; }
+  .muted { color: var(--muted); }
+  .spacer { flex: 1; }
+
+  /* ---- モック外枠（画面切替バー） ---- */
+  .mockbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    padding: 12px 18px; border-bottom: 1px solid var(--border);
+    background: var(--panel); position: sticky; top: 0; z-index: 20;
+  }
+  .mockbar .title { font-weight: 600; color: var(--text-strong); }
+  .mockbar .title small { color: var(--muted); font-weight: 400; margin-left: 8px; }
+  .flow { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .flow button {
+    border-radius: 999px; padding: 4px 12px; font-size: 12px; background: transparent;
+  }
+  .flow button.on { background: var(--accent-bg); border-color: var(--accent); color: var(--text-strong); }
+  .flow .arrow { color: var(--muted); font-size: 11px; padding: 0 2px; }
+  .flow .sep { width: 1px; height: 18px; background: var(--border-2); margin: 0 6px; }
+
+  .stage { padding: 18px; overflow-x: auto; }
+  .frame {
+    min-width: 1180px; max-width: 1440px; margin: 0 auto;
+    border: 1px solid var(--border-2); border-radius: 10px; overflow: hidden;
+    background: var(--bg); box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+    display: grid; grid-template-columns: 260px 1fr; grid-template-rows: auto 1fr; height: 800px;
+  }
+
+  /* ---- サイドバー（既存構造を踏襲 + タスク） ---- */
+  .sidebar { background: var(--panel); border-right: 1px solid var(--border); padding: 14px; overflow-y: auto; display: flex; flex-direction: column; }
+  .sidebar h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 16px 0 8px; display: flex; align-items: center; gap: 6px; }
+  .sidebar h2 .count { margin-left: auto; font-size: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
+  .list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .item {
+    width: 100%; text-align: left; display: grid; grid-template-columns: auto 1fr auto; column-gap: 8px; align-items: center;
+    padding: 6px 8px;
+  }
+  .item.active { border-color: var(--accent); background: var(--accent-bg); }
+  .item .key { font-family: var(--mono); font-size: 11px; color: var(--jira); }
+  .item .sum { grid-column: 1 / -1; font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .ws-key { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .dot.working { background: var(--good); box-shadow: 0 0 0 3px var(--good-bg); }
+  .dot.ready { background: var(--accent); }
+  .dot.none { background: transparent; border: 1.5px solid var(--muted); }
+  .dot.done { background: var(--muted); }
+  .badge { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; white-space: nowrap; }
+  .badge.jira { color: var(--jira); border-color: rgba(76,154,255,0.35); font-family: var(--mono); }
+  .agent-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 0 5px; }
+  .agent-badge .st { color: var(--good); }
+  /* アクティブ一覧: ワークスペースの下に常時表示。タブ切替ではなく一覧として置く */
+  /* セクション見出しはクリックで折りたたみ。1 セクションが伸びても他を押し出さないよう一覧に高さ上限 */
+  .sidebar h2 { cursor: pointer; user-select: none; }
+  .sidebar h2 .chev { font-size: 9px; color: var(--muted); transition: transform .15s; }
+  .sidebar section.collapsed h2 .chev { transform: rotate(-90deg); }
+  .sidebar section.collapsed > *:not(h2) { display: none; }
+  .sidebar .list ul { max-height: 230px; overflow-y: auto; scrollbar-width: thin; }
+  .sidebar .active-list ul { max-height: 260px; }
+  .sidebar .task-list .hint { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
+  .sidebar .task-list .more { width: 100%; margin-top: 6px; text-align: left; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .sidebar .task-list .more .n { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .sidebar .active-list { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 2px; }
+  .sidebar .active-list h2 .live { color: var(--good); text-transform: none; letter-spacing: 0; }
+  .act { grid-template-columns: auto 1fr auto; row-gap: 2px; }
+  .act .dir { font-family: var(--mono); font-size: 11.5px; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .act .where { grid-column: 2 / -1; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .act .where b { font-weight: 500; color: var(--text); }
+  .act .st { font-size: 10px; border-radius: 8px; padding: 0 6px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .act .st.working { color: var(--good); border-color: rgba(34,197,94,0.4); background: var(--good-bg); }
+  .act .st.blocked { color: var(--warn); border-color: rgba(245,158,11,0.45); background: var(--warn-bg); }
+  .sidebar .active-list .foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; }
+  .sidebar .active-list .foot button { font-size: 11px; padding: 3px 8px; }
+  .sidebar .active-list .foot label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+  .sidebar .active-list .foot input { width: auto; }
+
+  /* ---- アプリバー(画面最上部・全幅)。設定系はここに集約 ---- */
+  .appbar {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px; height: 40px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  .appbar h1 { font-size: 15px; margin: 0; color: var(--text-strong); font-weight: 600; letter-spacing: 0.01em; }
+  .appbar .ver { font-family: var(--mono); font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
+  .appbar .status { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-left: 6px; }
+  .appbar .status .dot { width: 6px; height: 6px; box-shadow: none; }
+  .appbar .actions { display: flex; align-items: center; gap: 4px; }
+  .appbar .actions > button, .menu-wrap > button { background: transparent; border-color: transparent; padding: 4px 8px; font-size: 12px; color: var(--text); }
+  .appbar .actions > button:hover, .menu-wrap > button:hover { background: var(--panel-2); border-color: var(--border); }
+  .appbar .actions kbd { font-size: 10px; border: 1px solid var(--border-2); border-radius: 3px; padding: 0 4px; color: var(--muted); background: var(--panel-2); }
+  .menu-wrap { position: relative; }
+  .menu-wrap > button.open { background: var(--panel-2); border-color: var(--border); }
+  .menu {
+    display: none; position: absolute; right: 0; top: calc(100% + 6px); min-width: 240px; z-index: 30;
+    background: var(--panel-2); border: 1px solid var(--border-2); border-radius: 8px; padding: 6px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  }
+  .menu.on { display: block; }
+  .menu .grp { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 6px 8px 2px; }
+  .menu button { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; background: transparent; border-color: transparent; padding: 6px 8px; border-radius: 5px; }
+  .menu button:hover { background: var(--panel-3); border-color: transparent; }
+  .menu button .ic { width: 16px; text-align: center; }
+  .menu button .hint { margin-left: auto; font-size: 10px; color: var(--muted); font-family: var(--mono); }
+  .menu hr { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
+
+  /* 設定画面: 左にサブナビ、右にパネル */
+  .settings-wrap { display: grid; grid-template-columns: 180px 1fr; flex: 1; min-height: 0; }
+  .settings-nav { border-right: 1px solid var(--border); background: var(--panel); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .settings-nav .grp { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 8px 8px 4px; }
+  .settings-nav button { text-align: left; background: transparent; border-color: transparent; padding: 6px 8px; display: flex; gap: 8px; align-items: center; }
+  .settings-nav button.on { background: var(--accent-bg); border-color: var(--accent); color: var(--text-strong); }
+  .settings-panel { display: none; overflow-y: auto; min-height: 0; }
+  .settings-panel.on { display: block; }
+  .settings-panel .single { max-width: 760px; padding: 16px; }
+  .pubkey-row { display: flex; gap: 6px; }
+  .pubkey-row input { font-family: var(--mono); font-size: 11px; }
+  .pubkey-row button { white-space: nowrap; }
+  .auth-keys { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .auth-keys li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; background: var(--panel-2); }
+  .auth-keys code { color: var(--muted); font-size: 11px; }
+  .sc-table th:first-child { width: 220px; }
+  .sc-table td:first-child { white-space: nowrap; }
+  .sc-table kbd { border: 1px solid var(--border-2); border-radius: 3px; padding: 0 5px; background: var(--panel-2); font-size: 11px; }
+  .sc-table .plus { color: var(--muted); margin: 0 3px; }
+
+  /* ---- メイン ---- */
+  .main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  .screen { display: none; flex-direction: column; height: 100%; min-height: 0; }
+  .screen.on { display: flex; }
+  .toolbar {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  .toolbar strong { color: var(--text-strong); font-size: 14px; }
+  .toolbar input, .toolbar select { width: auto; }
+  .toolbar .search { width: 220px; }
+  .crumb { color: var(--muted); }
+  .crumb a { color: var(--text); text-decoration: none; }
+  .crumb a:hover { color: var(--accent); }
+  .body { padding: 16px; overflow-y: auto; flex: 1; min-height: 0; }
+
+  /* 状態チップ（フィルタ兼サマリー） */
+  .chips { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 10px; font-size: 12px; background: var(--panel); }
+  .chip.on { border-color: var(--accent); color: var(--text-strong); }
+  .chip .n { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  /* テーブル */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr.row:hover td { background: var(--panel); }
+  tr.row.hidden { display: none; }
+  td .key { font-family: var(--mono); color: var(--jira); font-size: 12px; }
+  td .sum { color: var(--text-strong); }
+  td .sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+  .pill.todo { background: var(--panel-3); color: var(--text); }
+  .pill.prog { background: var(--accent-bg); color: #9cc2ff; }
+  .pill.review { background: var(--warn-bg); color: #ffc46b; }
+  .pill.done { background: var(--good-bg); color: #6ee7a0; }
+  .state { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .repos { display: flex; gap: 4px; flex-wrap: wrap; }
+  .repo-tag { font-family: var(--mono); font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; color: var(--text); }
+  .repo-tag.base::before { content: '⧉ '; color: var(--muted); }
+  .repo-tag.clone::before { content: '⤓ '; color: var(--muted); }
+  .actions { display: flex; gap: 4px; justify-content: flex-end; white-space: nowrap; }
+  .actions button { padding: 3px 8px; font-size: 12px; }
+
+  .legend { display: flex; gap: 14px; margin-top: 12px; color: var(--muted); font-size: 11px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+
+  /* ---- モーダル ---- */
+  .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 10; }
+  .overlay.on { display: flex; }
+  .modal { width: 640px; max-width: calc(100% - 40px); background: var(--panel); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 24px 60px rgba(0,0,0,0.5); display: flex; flex-direction: column; max-height: 92%; }
+  .modal header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .modal header strong { color: var(--text-strong); font-size: 14px; }
+  .modal .content { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+  .modal footer { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  .field .hint { font-size: 11px; color: var(--muted); }
+  .inline { display: flex; gap: 8px; align-items: center; }
+  .inline input { flex: 1; }
+  .check { display: inline-flex; align-items: center; gap: 6px; }
+  .check input { width: auto; }
+
+  /* Jira プレビューカード */
+  .jira-card { border: 1px solid var(--border); border-left: 3px solid var(--jira); border-radius: 6px; background: var(--panel-2); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .jira-card .head { display: flex; align-items: center; gap: 10px; }
+  .jira-card .head .key { font-family: var(--mono); color: var(--jira); }
+  .jira-card .head .sum { color: var(--text-strong); font-weight: 500; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 12px; }
+  .kv dt { color: var(--muted); margin: 0; }
+  .kv dd { margin: 0; }
+  .desc { font-size: 12px; color: var(--text); white-space: pre-wrap; border-top: 1px dashed var(--border); padding-top: 8px; }
+  .tpl-preview { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tpl-preview .box { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
+  .tpl-preview .box h4 { margin: 0 0 6px; font-size: 11px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+  .tpl-preview ul { margin: 0; padding-left: 16px; }
+
+  /* ---- タスク詳細 ---- */
+  .detail-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px 0; }
+  .detail-head .key { font-family: var(--mono); color: var(--jira); font-size: 13px; }
+  .detail-head h3 { margin: 0; font-size: 18px; color: var(--text-strong); font-weight: 600; text-wrap: balance; }
+  .detail-head .link { color: var(--muted); font-size: 12px; text-decoration: none; }
+  .detail-head .link:hover { color: var(--accent); }
+  .cols { display: grid; grid-template-columns: 1fr 1.25fr; gap: 16px; padding: 16px; align-items: start; }
+  .card { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+  .card > header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .card > header strong { color: var(--text-strong); font-size: 13px; }
+  .card > .inner { padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+  .card.env { border-color: var(--border-2); }
+  .path { font-family: var(--mono); font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 7px; }
+  .repo-list { display: flex; flex-direction: column; gap: 6px; }
+  .repo-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--panel-2); }
+  .repo-row .name { font-family: var(--mono); color: var(--text-strong); font-size: 12px; }
+  .repo-row .meta { grid-column: 1 / -1; display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+  .repo-row .meta code { color: var(--text); }
+  .repo-row .st { font-size: 11px; }
+  .layout-mini { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 100%; }
+  .layout-mini div { border: 1px solid var(--border-2); border-radius: 4px; padding: 6px 8px; font-size: 11px; background: var(--bg); min-height: 44px; }
+  .layout-mini .n { color: var(--muted); font-family: var(--mono); }
+  .layout-mini .r { color: var(--text-strong); font-family: var(--mono); display: block; }
+  .layout-mini .c { color: var(--muted); font-family: var(--mono); display: block; }
+  .steps-mini { margin: 0; padding-left: 18px; font-family: var(--mono); font-size: 11.5px; color: var(--text); line-height: 1.8; }
+  .cta { display: flex; gap: 8px; align-items: center; }
+  .cta .primary { padding: 9px 14px; font-size: 13px; }
+  .progress-note { font-size: 11px; color: var(--muted); }
+
+  /* ---- セットアップ実行 ---- */
+  .run-wrap { padding: 16px; display: grid; grid-template-columns: 1fr 380px; gap: 16px; align-items: start; }
+  .bar { height: 6px; background: var(--panel-3); border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s ease; }
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .step { display: grid; grid-template-columns: 22px 1fr auto; column-gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--border); align-items: start; }
+  .step:last-child { border-bottom: 0; }
+  .step .ic { font-family: var(--mono); font-size: 13px; text-align: center; color: var(--muted); }
+  .step.done .ic { color: var(--good); }
+  .step.run .ic { color: var(--accent); }
+  .step.fail .ic { color: var(--danger); }
+  .step .t { color: var(--text-strong); }
+  .step.pending .t { color: var(--muted); }
+  .step .sub { font-family: var(--mono); font-size: 11px; color: var(--muted); grid-column: 2; }
+  .step .dur { font-family: var(--mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .step .log { grid-column: 2 / -1; margin-top: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-family: var(--mono); font-size: 11px; color: var(--text); white-space: pre; overflow-x: auto; max-height: 96px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .step.run .ic { animation: spin 1s linear infinite; display: inline-block; }
+  @media (prefers-reduced-motion: reduce) { .step.run .ic { animation: none; } .bar i { transition: none; } }
+  .run-side .card + .card { margin-top: 12px; }
+  .done-banner { display: none; border: 1px solid rgba(34,197,94,0.4); background: var(--good-bg); border-radius: 8px; padding: 12px 14px; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .done-banner.on { display: flex; }
+  .done-banner strong { color: #6ee7a0; }
+
+  /* ---- ワークスペース（タスクバナー付き） ---- */
+  .task-strip { display: flex; align-items: center; gap: 10px; padding: 6px 14px; background: var(--panel-2); border-bottom: 1px solid var(--border); font-size: 12px; }
+  .task-strip .key { font-family: var(--mono); color: var(--jira); }
+  .task-strip .sum { color: var(--text-strong); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6px; padding: 8px; flex: 1; min-height: 0; }
+  .cell { border: 1px solid var(--border); border-radius: 6px; background: #0b0d10; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .cell.active-cell { border-color: var(--accent); }
+  .cell-head { display: flex; align-items: center; gap: 8px; padding: 5px 8px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 12px; }
+  .cell-head .dir { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .cell-head .git { font-family: var(--mono); font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+  .term { font-family: var(--mono); font-size: 11.5px; padding: 8px 10px; color: #b7bec8; white-space: pre; line-height: 1.55; overflow: hidden; }
+  .term .p { color: #6ee7a0; }
+  .term .c { color: #9cc2ff; }
+  .term .cur { background: #b7bec8; color: #0b0d10; }
+
+  /* ---- 設定 ---- */
+  .settings { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; align-items: start; }
+  .settings .full { grid-column: 1 / -1; }
+  .tpl { display: flex; flex-direction: column; gap: 6px; }
+  .tpl-row { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--panel-2); display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; }
+  .tpl-row.sel { border-color: var(--accent); }
+  .tpl-row .n { color: var(--text-strong); font-weight: 500; }
+  .tpl-row .d { grid-column: 1 / -1; font-size: 11px; color: var(--muted); }
+  .base-table td { padding: 7px 10px; }
+  .fresh { color: var(--good); }
+  .stale { color: var(--warn); }
+  .mask { font-family: var(--mono); letter-spacing: 0.15em; }
+
+  /* ---- 設計メモ ---- */
+  .notes { max-width: 1180px; margin: 24px auto 40px; padding: 0 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .notes .card .inner { font-size: 12.5px; }
+  .notes h3 { margin: 0 0 8px; font-size: 13px; color: var(--text-strong); }
+  .notes ul, .notes ol { margin: 0; padding-left: 18px; }
+  .notes li { margin: 3px 0; }
+  .notes pre { margin: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-family: var(--mono); font-size: 11.5px; overflow-x: auto; }
+</style>
+</head>
+<body>
+
+<div class="mockbar">
+  <span class="title">multi-terminals タスク管理 UI 案 <small>2026-09-10 · クリックで画面を切替</small></span>
+  <div class="flow" role="tablist" aria-label="画面の導線">
+    <button class="on" data-go="list">1 タスク一覧</button><span class="arrow">→</span>
+    <button data-go="import">2 Jira から取り込む</button><span class="arrow">→</span>
+    <button data-go="detail">3 タスク詳細</button><span class="arrow">→</span>
+    <button data-go="run">4 環境セットアップ</button><span class="arrow">→</span>
+    <button data-go="ws">5 ワークスペースで作業</button>
+    <span class="sep"></span>
+    <button data-go="settings">⚙ 設定（右上メニュー）</button>
+  </div>
+</div>
+
+<div class="stage">
+<div class="frame" style="position: relative;">
+
+  <!-- ================= アプリバー(全幅・右上に設定) ================= -->
+  <header class="appbar">
+    <h1>multi-terminals</h1>
+    <span class="ver">v0.9</span>
+    <span class="status"><span class="dot working"></span>Jira 同期 12:41</span>
+    <span class="spacer"></span>
+    <div class="actions">
+      <button title="Jira を同期">⟳ 同期</button>
+      <button data-go="settings" data-set="shortcuts" title="ショートカット一覧 (⌘/)"><kbd>⌘</kbd><kbd>/</kbd></button>
+      <div class="menu-wrap">
+        <button id="gear" aria-haspopup="menu" aria-expanded="false" title="設定">⚙ 設定 ▾</button>
+        <div class="menu" id="gear-menu" role="menu">
+          <div class="grp">タスク環境</div>
+          <button role="menuitem" data-go="settings" data-set="templates"><span class="ic">🧩</span>環境テンプレート</button>
+          <button role="menuitem" data-go="settings" data-set="base"><span class="ic">⧉</span>ベースクローン</button>
+          <button role="menuitem" data-go="settings" data-set="jira"><span class="ic">🔗</span>Jira 接続</button>
+          <hr>
+          <div class="grp">このアプリ</div>
+          <button role="menuitem" data-go="settings" data-set="remote"><span class="ic">🔑</span>リモート設定</button>
+          <button role="menuitem" data-go="settings" data-set="shortcuts"><span class="ic">⌨</span>ショートカット一覧<span class="hint">⌘/</span></button>
+          <hr>
+          <button role="menuitem"><span class="ic">ⓘ</span>バージョン情報<span class="hint">v0.9</span></button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= サイドバー(タブ切替なし: タスク → ワークスペース → アクティブ を縦に並べる) ================= -->
+  <aside class="sidebar">
+
+    <section class="list task-list">
+      <h2><span class="chev">▼</span>タスク <span class="muted" style="text-transform:none; letter-spacing:0;">· 進行中</span><span class="count">4 / 42</span></h2>
+      <ul>
+        <li><button class="item" data-go="ws" data-task="PROJ-1284">
+          <span class="dot working"></span><span class="key">PROJ-1284</span><span class="agent-badge">claude <span class="st">●1</span></span>
+          <span class="sum">決済画面のバリデーション修正</span>
+        </button></li>
+        <li><button class="item" data-go="ws" data-task="PROJ-1277">
+          <span class="dot working"></span><span class="key">PROJ-1277</span><span class="agent-badge">codex <span class="st">●1</span></span>
+          <span class="sum">検索 API のページング対応</span>
+        </button></li>
+        <li><button class="item active" data-go="detail" data-task="PROJ-1301">
+          <span class="dot ready"></span><span class="key">PROJ-1301</span><span class="badge">環境あり</span>
+          <span class="sum">Jira 連携の設定画面</span>
+        </button></li>
+        <li><button class="item" data-go="detail" data-task="PROJ-1298">
+          <span class="dot ready"></span><span class="key">PROJ-1298</span><span class="badge">環境あり</span>
+          <span class="sum">通知メールのテンプレート整理</span>
+        </button></li>
+      </ul>
+      <p class="hint">ここには作業中 / 環境ありのタスクだけを最大 5 件表示。未準備・完了は一覧で。</p>
+      <button class="more" data-go="list">📋 すべてのタスク <span class="n">42 →</span></button>
+    </section>
+
+    <section class="list">
+      <h2><span class="chev">▼</span>ワークスペース <span class="count">3</span></h2>
+      <ul>
+        <li><button class="item">
+          <span class="ws-key">⌘1</span><span class="key" style="color:var(--text)">PROJ-1284 決済バリデーション</span><span class="badge">4分割</span>
+        </button></li>
+        <li><button class="item">
+          <span class="ws-key">⌘2</span><span class="key" style="color:var(--text)">PROJ-1301 Jira 設定画面</span><span class="badge">4分割</span>
+        </button></li>
+        <li><button class="item">
+          <span class="ws-key">⌘3</span><span class="key" style="color:var(--text)">infra メンテ</span><span class="badge">左右</span>
+        </button></li>
+      </ul>
+    </section>
+
+    <section class="list active-list">
+      <h2><span class="chev">▼</span>⚡ アクティブ <span class="live">4 起動中</span><span class="count">agent 2</span></h2>
+      <ul>
+        <li><button class="item act" data-go="ws">
+          <span class="dot working"></span><span class="dir">frontend</span><span class="st blocked">claude · 応答待ち</span>
+          <span class="where"><b>PROJ-1301</b> Jira 設定画面 · pane 2</span>
+        </button></li>
+        <li><button class="item act" data-go="ws">
+          <span class="dot working"></span><span class="dir">backend</span><span class="st working">claude · 作業中</span>
+          <span class="where"><b>PROJ-1284</b> 決済バリデーション · pane 1</span>
+        </button></li>
+        <li><button class="item act" data-go="ws">
+          <span class="dot working"></span><span class="dir">frontend</span><span class="st">npm run dev</span>
+          <span class="where"><b>PROJ-1301</b> Jira 設定画面 · pane 0</span>
+        </button></li>
+        <li><button class="item act" data-go="ws">
+          <span class="dot working"></span><span class="dir">backend</span><span class="st">go run ./cmd</span>
+          <span class="where"><b>PROJ-1301</b> Jira 設定画面 · pane 1</span>
+        </button></li>
+      </ul>
+      <div class="foot">
+        <label><input type="checkbox" /> エージェントのみ</label>
+        <span class="spacer"></span>
+        <button title="起動中ターミナルだけを 1 画面に集約 (Ctrl+Shift+A)">⤢ 集約表示</button>
+      </div>
+    </section>
+  </aside>
+
+
+  <!-- ================= メイン ================= -->
+  <main class="main">
+
+    <!-- 1. タスク一覧 -->
+    <section class="screen on" id="scr-list">
+      <div class="toolbar">
+        <button class="icon">☰</button>
+        <strong>タスク</strong>
+        <input class="search" placeholder="Jira 番号・概要で絞り込み" />
+        <span class="spacer"></span>
+        <span class="muted">最終同期 12:41</span>
+        <button>⟳ Jira を同期</button>
+        <button class="primary" data-go="import">＋ Jira から取り込む</button>
+      </div>
+      <div class="body">
+        <div class="chips" id="chips">
+          <button class="chip on" data-f="all">すべて <span class="n">42</span></button>
+          <button class="chip" data-f="working"><span class="dot working"></span>作業中 <span class="n">2</span></button>
+          <button class="chip" data-f="ready"><span class="dot ready"></span>環境あり <span class="n">3</span></button>
+          <button class="chip" data-f="none"><span class="dot none"></span>未準備 <span class="n">29</span></button>
+          <button class="chip" data-f="done"><span class="dot done"></span>完了 <span class="n">8</span></button>
+          <span class="spacer"></span>
+          <select style="width:auto; padding:3px 8px; font-size:12px;"><option>並び: ローカル状態 → 更新日時</option><option>並び: Jira 更新日時</option><option>並び: 優先度</option><option>並び: スプリント</option></select>
+        </div>
+        <table>
+          <thead><tr>
+            <th>Jira</th><th>概要</th><th>Jira ステータス</th><th>ローカル</th><th>リポジトリ</th><th>ワークスペース</th><th>更新</th><th></th>
+          </tr></thead>
+          <tbody>
+            <tr class="row" data-state="working">
+              <td><span class="key">PROJ-1284</span></td>
+              <td><div class="sum">決済画面のバリデーション修正</div><div class="sub">担当: 笠松 · 優先度: High · スプリント 42</div></td>
+              <td><span class="pill prog">In Progress</span></td>
+              <td><span class="state"><span class="dot working"></span>作業中 <span class="agent-badge">claude <span class="st">●1</span></span></span></td>
+              <td><div class="repos"><span class="repo-tag base">frontend</span><span class="repo-tag base">backend</span></div></td>
+              <td><span class="badge">⌘1 PROJ-1284 決済…</span></td>
+              <td class="num">3分前</td>
+              <td><div class="actions"><button class="primary" data-go="ws">開く</button><button data-go="detail">詳細</button></div></td>
+            </tr>
+            <tr class="row" data-state="ready">
+              <td><span class="key">PROJ-1301</span></td>
+              <td><div class="sum">Jira 連携の設定画面</div><div class="sub">担当: 笠松 · 優先度: Medium · スプリント 42</div></td>
+              <td><span class="pill todo">To Do</span></td>
+              <td><span class="state"><span class="dot ready"></span>環境あり</span></td>
+              <td><div class="repos"><span class="repo-tag base">frontend</span><span class="repo-tag clone">backend</span></div></td>
+              <td><span class="badge">⌘2 PROJ-1301 Jira…</span></td>
+              <td class="num">昨日</td>
+              <td><div class="actions"><button class="primary" data-go="ws">開く</button><button data-go="detail">詳細</button></div></td>
+            </tr>
+            <tr class="row" data-state="none">
+              <td><span class="key">PROJ-1290</span></td>
+              <td><div class="sum">ログ出力の JSON 化</div><div class="sub">担当: 未割当 · 優先度: Low · バックログ</div></td>
+              <td><span class="pill todo">To Do</span></td>
+              <td><span class="state"><span class="dot none"></span>未準備</span></td>
+              <td><div class="repos"><span class="muted">テンプレート: backend のみ</span></div></td>
+              <td><span class="muted">—</span></td>
+              <td class="num">2日前</td>
+              <td><div class="actions"><button class="primary" data-go="run">▶ 環境を作る</button><button data-go="detail">詳細</button></div></td>
+            </tr>
+            <tr class="row" data-state="done">
+              <td><span class="key">PROJ-1266</span></td>
+              <td><div class="sum">CI の node 22 移行</div><div class="sub">担当: 笠松 · 優先度: Medium · スプリント 41</div></td>
+              <td><span class="pill done">Done</span></td>
+              <td><span class="state"><span class="dot done"></span>完了</span></td>
+              <td><div class="repos"><span class="repo-tag base">frontend</span></div></td>
+              <td><span class="muted">削除済み</span></td>
+              <td class="num">8日前</td>
+              <td><div class="actions"><button>🗑 作業フォルダを削除</button><button data-go="detail">詳細</button></div></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="legend">
+          <span>⧉ ベースクローンからコピー</span>
+          <span>⤓ git clone</span>
+          <span><span class="dot working"></span>作業中 = ワークスペースが起動中</span>
+          <span><span class="dot ready"></span>環境あり = フォルダとワークスペースが準備済み</span>
+          <span class="spacer"></span>
+          <span>1–4 / 42 件</span><button class="icon" disabled>‹</button><button class="icon">›</button>
+          <select style="width:auto; padding:1px 6px; font-size:11px;"><option>20 件/頁</option><option>50 件/頁</option><option>100 件/頁</option></select>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. タスク詳細 -->
+    <section class="screen" id="scr-detail">
+      <div class="toolbar">
+        <button class="icon">☰</button>
+        <span class="crumb"><a href="#" data-go="list">タスク</a> / </span>
+        <strong id="d-key">PROJ-1301</strong>
+        <span class="spacer"></span>
+        <a class="link muted" href="#" style="text-decoration:none">Jira で開く ↗</a>
+        <button>⟳ Jira から再取得</button>
+        <button class="danger ghost">タスクを外す</button>
+      </div>
+      <div class="detail-head">
+        <span class="pill todo">To Do</span>
+        <h3>Jira 連携の設定画面</h3>
+      </div>
+      <div class="body" style="padding:0">
+      <div class="cols">
+        <div style="display:flex; flex-direction:column; gap:16px;">
+          <div class="card">
+            <header><strong>Jira 情報</strong><span class="spacer"></span><span class="muted">取得 12:41</span></header>
+            <div class="inner">
+              <dl class="kv">
+                <dt>ステータス</dt><dd><span class="pill todo">To Do</span></dd>
+                <dt>担当</dt><dd>笠松</dd>
+                <dt>優先度</dt><dd>Medium</dd>
+                <dt>種別</dt><dd>Story</dd>
+                <dt>エピック</dt><dd>PROJ-1200 外部サービス連携</dd>
+                <dt>スプリント</dt><dd>スプリント 42（9/8 – 9/19）</dd>
+                <dt>ブランチ案</dt><dd><code>feature/PROJ-1301-jira-settings</code></dd>
+              </dl>
+              <div class="desc">Jira の接続情報（サイト URL / メール / API トークン）を設定画面から登録できるようにする。
+トークンは OS のキーチェーンに保存し、設定 JSON には書かない。
+
+受け入れ条件:
+- 接続テストボタンで 200 / 401 を判別して表示する
+- 登録後にタスク一覧の「Jira を同期」が動く</div>
+            </div>
+          </div>
+          <div class="card">
+            <header><strong>メモ</strong><span class="muted">ローカルのみ</span></header>
+            <div class="inner">
+              <textarea rows="3" placeholder="このタスクの手元メモ（Jira には送らない）">API トークンの保存先は keychain。macOS は security コマンド、Linux は secret-tool を検討。</textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="card env">
+          <header><strong>作業環境</strong><span class="badge">テンプレート: web-app 標準</span><span class="spacer"></span><button class="icon">編集</button></header>
+          <div class="inner">
+            <div class="kv" style="grid-template-columns: max-content 1fr; align-items:center;">
+              <dt>作業フォルダ</dt><dd><span class="path">~/work/PROJ-1301/</span></dd>
+              <dt>ブランチ</dt><dd><span class="path">feature/PROJ-1301-jira-settings</span> <span class="muted">全リポジトリ共通</span></dd>
+            </div>
+
+            <div>
+              <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px;">リポジトリ</div>
+              <div class="repo-list">
+                <div class="repo-row">
+                  <span class="name">frontend</span><span class="st fresh">✓ 準備済み</span>
+                  <div class="meta"><span>⧉ ベースクローンからコピー</span><span>base: <code>~/.multi-terminals/base/frontend</code></span><span>セットアップ: <code>npm ci</code></span></div>
+                </div>
+                <div class="repo-row">
+                  <span class="name">backend</span><span class="st fresh">✓ 準備済み</span>
+                  <div class="meta"><span>⤓ git clone</span><span><code>git@github.com:acme/backend.git</code></span><span>セットアップ: <code>go mod download</code></span></div>
+                </div>
+                <button class="ghost" style="text-align:left;">＋ リポジトリを追加</button>
+              </div>
+            </div>
+
+            <div>
+              <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px;">ワークスペース <span style="text-transform:none; letter-spacing:0">· 4分割</span></div>
+              <div class="layout-mini">
+                <div><span class="n">0</span> <span class="r">frontend</span><span class="c">npm run dev（自動）</span></div>
+                <div><span class="n">1</span> <span class="r">backend</span><span class="c">go run ./cmd（自動）</span></div>
+                <div><span class="n">2</span> <span class="r">frontend</span><span class="c">claude（手動）</span></div>
+                <div><span class="n">3</span> <span class="r">~/work/PROJ-1301</span><span class="c">—</span></div>
+              </div>
+            </div>
+
+            <div class="cta">
+              <button class="primary" data-go="ws">▶ ワークスペースを開く</button>
+              <button data-go="run">セットアップをやり直す</button>
+              <span class="spacer"></span>
+              <span class="progress-note">前回セットアップ: 昨日 18:02 · 1分12秒</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <!-- 4. 環境セットアップ実行 -->
+    <section class="screen" id="scr-run">
+      <div class="toolbar">
+        <button class="icon">☰</button>
+        <span class="crumb"><a href="#" data-go="list">タスク</a> / <a href="#" data-go="detail">PROJ-1290</a> / </span>
+        <strong>環境セットアップ</strong>
+        <span class="spacer"></span>
+        <button id="run-bg">バックグラウンドで続行</button>
+        <button class="danger" id="run-abort">中止</button>
+      </div>
+      <div class="body" style="padding:0">
+      <div class="run-wrap">
+        <div>
+          <div class="done-banner" id="done-banner">
+            <strong>セットアップ完了</strong><span class="muted">ワークスペース「PROJ-1290 ログ JSON 化」を作成しました</span>
+            <span class="spacer"></span>
+            <button class="primary" data-go="ws">▶ ワークスペースを開く</button>
+          </div>
+          <div class="card">
+            <header>
+              <strong>PROJ-1290 ログ出力の JSON 化</strong>
+              <span class="badge">テンプレート: backend のみ</span>
+              <span class="spacer"></span>
+              <span class="muted mono" id="run-prog">0 / 6</span>
+            </header>
+            <div style="padding: 10px 12px 0;"><div class="bar"><i id="run-bar"></i></div></div>
+            <ol class="steps" id="steps">
+              <li class="step pending"><span class="ic">○</span><span class="t">作業フォルダを作成</span><span class="dur"></span><span class="sub">mkdir -p ~/work/PROJ-1290</span></li>
+              <li class="step pending"><span class="ic">○</span><span class="t">backend: ベースクローンからコピー</span><span class="dur"></span><span class="sub">cp -R ~/.multi-terminals/base/backend ~/work/PROJ-1290/backend</span></li>
+              <li class="step pending"><span class="ic">○</span><span class="t">backend: 最新化してブランチを作成</span><span class="dur"></span><span class="sub">git fetch --prune && git switch -c feature/PROJ-1290-json-logs origin/main</span>
+                <pre class="log" hidden>From github.com:acme/backend
+   3f1c2a9..8d0e77b  main -> origin/main
+Switched to a new branch 'feature/PROJ-1290-json-logs'</pre></li>
+              <li class="step pending"><span class="ic">○</span><span class="t">backend: セットアップコマンド</span><span class="dur"></span><span class="sub">go mod download</span></li>
+              <li class="step pending"><span class="ic">○</span><span class="t">ワークスペースを作成</span><span class="dur"></span><span class="sub">「PROJ-1290 ログ JSON 化」 左右2分割 · ペイン 0: backend / 1: backend(claude)</span></li>
+              <li class="step pending"><span class="ic">○</span><span class="t">起動コマンドを登録</span><span class="dur"></span><span class="sub">pane 0: go run ./cmd（自動） · pane 1: claude（手動）</span></li>
+            </ol>
+          </div>
+          <div class="cta" style="margin-top:12px;">
+            <button class="primary" id="run-start">▶ 実行する（モック: 進行を再生）</button>
+            <button id="run-reset">リセット</button>
+            <span class="progress-note">実行中はバックグラウンドで続行でき、一覧のローカル状態が「準備中 ⟳」になる想定</span>
+          </div>
+        </div>
+
+        <div class="run-side">
+          <div class="card">
+            <header><strong>この実行の内容</strong></header>
+            <div class="inner">
+              <dl class="kv">
+                <dt>作業フォルダ</dt><dd><code>~/work/PROJ-1290/</code></dd>
+                <dt>ブランチ</dt><dd><code>feature/PROJ-1290-json-logs</code></dd>
+                <dt>リポジトリ</dt><dd>backend（⧉ ベースからコピー）</dd>
+                <dt>ベースの鮮度</dt><dd><span class="fresh">✓ 12分前に fetch 済み</span></dd>
+                <dt>レイアウト</dt><dd>左右2分割</dd>
+              </dl>
+            </div>
+          </div>
+          <div class="card">
+            <header><strong>失敗時の挙動</strong></header>
+            <div class="inner muted" style="font-size:12px; line-height:1.6;">
+              失敗したステップで停止し、stderr をそのまま表示。「このステップから再実行」「スキップして続行」を選べる。
+              作成済みフォルダは残す（消したい場合はタスク一覧の「作業フォルダを削除」）。
+            </div>
+          </div>
+        </div>
+      </div>
+      </div>
+    </section>
+
+    <!-- 5. ワークスペース（既存画面 + タスクバナー） -->
+    <section class="screen" id="scr-ws">
+      <div class="toolbar">
+        <button class="icon">☰</button>
+        <strong>PROJ-1301 Jira 設定画面</strong>
+        <select style="width:auto"><option>4分割</option><option>左右2分割</option><option>上下2分割</option><option>1画面</option></select>
+        <span class="spacer"></span>
+        <button>⤢ 最大化</button>
+      </div>
+      <div class="task-strip">
+        <span class="key">PROJ-1301</span>
+        <span class="sum">Jira 連携の設定画面</span>
+        <span class="pill todo">To Do</span>
+        <span class="muted">· <code>feature/PROJ-1301-jira-settings</code></span>
+        <span class="spacer"></span>
+        <button class="icon" data-go="detail">タスク詳細</button>
+        <button class="icon">Jira で開く ↗</button>
+        <button class="icon">ステータスを In Progress に</button>
+      </div>
+      <div class="grid">
+        <div class="cell active-cell">
+          <div class="cell-head"><span class="dir">frontend</span><span class="git">⎇ feature/PROJ-1301-jira-settings</span><span class="spacer"></span><span class="muted">npm run dev</span></div>
+          <div class="term"><span class="p">~/work/PROJ-1301/frontend</span> $ <span class="c">npm run dev</span>
+
+  VITE v6.0.3  ready in 412 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+<span class="cur"> </span></div>
+        </div>
+        <div class="cell">
+          <div class="cell-head"><span class="dir">backend</span><span class="git">⎇ feature/PROJ-1301-jira-settings</span><span class="spacer"></span><span class="muted">go run ./cmd</span></div>
+          <div class="term"><span class="p">~/work/PROJ-1301/backend</span> $ <span class="c">go run ./cmd</span>
+2026/09/10 12:44:02 listening on :8080
+2026/09/10 12:44:02 jira: not configured (see settings)
+</div>
+        </div>
+        <div class="cell">
+          <div class="cell-head"><span class="dir">frontend</span><span class="git">⎇ feature/PROJ-1301-jira-settings</span><span class="agent-badge">claude <span class="st">●</span></span></div>
+          <div class="term"><span class="p">~/work/PROJ-1301/frontend</span> $ <span class="c">claude</span>
+╭─ Claude Code ───────────────────────╮
+│ PROJ-1301 の受け入れ条件を読み込み中… │
+╰──────────────────────────────────────╯
+</div>
+        </div>
+        <div class="cell">
+          <div class="cell-head"><span class="dir">~/work/PROJ-1301</span><span class="git">—</span></div>
+          <div class="term"><span class="p">~/work/PROJ-1301</span> $ <span class="c">ls</span>
+backend  frontend  .task.json
+<span class="p">~/work/PROJ-1301</span> $ <span class="cur"> </span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. Jira 取り込みモーダル（一覧の上に重ねる） -->
+    <div class="overlay" id="import-overlay">
+      <div class="modal" role="dialog" aria-labelledby="imp-title">
+        <header><strong id="imp-title">Jira から取り込む</strong><span class="spacer"></span><button class="icon" data-close>✕</button></header>
+        <div class="content">
+          <div class="field">
+            <label>Jira 番号</label>
+            <div class="inline">
+              <input value="PROJ-1301" class="mono" />
+              <button>取得</button>
+            </div>
+            <span class="hint">カンマ区切りで複数指定できます（例: PROJ-1301, PROJ-1302）。Jira の URL を貼り付けても番号を拾います。</span>
+          </div>
+
+          <div class="jira-card">
+            <div class="head"><span class="key">PROJ-1301</span><span class="sum">Jira 連携の設定画面</span><span class="spacer"></span><span class="pill todo">To Do</span></div>
+            <dl class="kv">
+              <dt>担当</dt><dd>笠松</dd>
+              <dt>優先度</dt><dd>Medium</dd>
+              <dt>エピック</dt><dd>PROJ-1200 外部サービス連携</dd>
+              <dt>スプリント</dt><dd>スプリント 42</dd>
+            </dl>
+            <div class="desc">Jira の接続情報（サイト URL / メール / API トークン）を設定画面から登録できるようにする。トークンは OS のキーチェーンに保存し…</div>
+          </div>
+
+          <div class="field">
+            <label>環境テンプレート</label>
+            <select id="tpl-select">
+              <option>web-app 標準（frontend ⧉ + backend ⤓ · 4分割）</option>
+              <option>backend のみ（backend ⧉ · 左右2分割）</option>
+              <option>infra（terraform ⤓ · 1画面）</option>
+              <option>なし（後でタスク詳細から設定）</option>
+            </select>
+          </div>
+          <div class="tpl-preview">
+            <div class="box"><h4>作成されるもの</h4>
+              <ul>
+                <li>作業フォルダ <code>~/work/PROJ-1301/</code></li>
+                <li>frontend ← ベースクローンをコピー</li>
+                <li>backend ← git clone</li>
+                <li>ブランチ <code>feature/PROJ-1301-jira-settings</code></li>
+              </ul>
+            </div>
+            <div class="box"><h4>ワークスペース</h4>
+              <ul>
+                <li>名前 <code>PROJ-1301 Jira 設定画面</code></li>
+                <li>4分割 · frontend / backend / frontend(claude) / ルート</li>
+                <li>npm ci, go mod download を実行</li>
+              </ul>
+            </div>
+          </div>
+
+          <label class="check"><input type="checkbox" checked /> 取り込み後すぐに環境をセットアップする</label>
+        </div>
+        <footer>
+          <span class="muted">Jira 側は変更しません</span>
+          <span class="spacer"></span>
+          <button data-close>キャンセル</button>
+          <button data-go="detail" data-close>取り込む（環境は後で）</button>
+          <button class="primary" data-go="run" data-close>取り込んでセットアップ</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- 設定: テンプレート / ベースクローン / Jira 接続 -->
+    <section class="screen" id="scr-settings">
+      <div class="toolbar">
+        <button class="icon">☰</button>
+        <strong>設定</strong><span class="crumb">· <span id="set-title">環境テンプレート</span></span>
+        <span class="spacer"></span>
+        <button class="icon" data-go="list">✕ 閉じる</button>
+      </div>
+      <div class="settings-wrap">
+      <nav class="settings-nav" id="settings-nav" aria-label="設定の項目">
+        <div class="grp">タスク環境</div>
+        <button class="on" data-set="templates">🧩 環境テンプレート</button>
+        <button data-set="base">⧉ ベースクローン</button>
+        <button data-set="jira">🔗 Jira 接続</button>
+        <div class="grp">このアプリ</div>
+        <button data-set="remote">🔑 リモート設定</button>
+        <button data-set="shortcuts">⌨ ショートカット一覧</button>
+      </nav>
+
+      <!-- 環境テンプレート -->
+      <div class="settings-panel on" data-panel="templates">
+      <div class="single">
+        <div class="card">
+          <header><strong>環境テンプレート</strong>
+<span class="spacer"></span><button class="icon">＋ 追加</button></header>
+          <div class="inner">
+            <div class="tpl">
+              <div class="tpl-row sel"><span class="n">web-app 標準</span><span class="muted">既定</span><span class="d">frontend ⧉ + backend ⤓ · 4分割 · npm ci / go mod download</span></div>
+              <div class="tpl-row"><span class="n">backend のみ</span><span></span><span class="d">backend ⧉ · 左右2分割 · go mod download</span></div>
+              <div class="tpl-row"><span class="n">infra</span><span></span><span class="d">terraform ⤓ · 1画面 · terraform init</span></div>
+            </div>
+            <div class="kv" style="border-top:1px solid var(--border); padding-top:12px;">
+              <dt>名前</dt><dd><input value="web-app 標準" /></dd>
+              <dt>作業フォルダ</dt><dd><input value="~/work/{KEY}/" class="mono" /></dd>
+              <dt>ブランチ名</dt><dd><input value="feature/{KEY}-{slug}" class="mono" /></dd>
+              <dt>レイアウト</dt><dd><select><option>4分割</option><option>左右2分割</option><option>上下2分割</option><option>1画面</option></select></dd>
+            </div>
+            <div>
+              <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px;">リポジトリとペイン</div>
+              <div class="repo-list">
+                <div class="repo-row"><span class="name">frontend</span><span class="st muted">pane 0, 2</span>
+                  <div class="meta"><span>取得: <select style="width:auto; padding:1px 4px; font-size:11px;"><option>⧉ ベースクローンからコピー</option><option>⤓ git clone</option></select></span><span>セットアップ: <code>npm ci</code></span><span>起動: <code>npm run dev</code></span></div></div>
+                <div class="repo-row"><span class="name">backend</span><span class="st muted">pane 1</span>
+                  <div class="meta"><span>取得: <select style="width:auto; padding:1px 4px; font-size:11px;"><option>⤓ git clone</option><option>⧉ ベースクローンからコピー</option></select></span><span>セットアップ: <code>go mod download</code></span><span>起動: <code>go run ./cmd</code></span></div></div>
+                <button class="ghost" style="text-align:left;">＋ リポジトリを追加</button>
+              </div>
+            </div>
+            <div class="cta"><button class="primary">保存</button><span class="muted">{KEY} = Jira 番号、{slug} = 概要から生成</span></div>
+          </div>
+        </div>
+      </div>
+      </div>
+
+      <!-- ベースクローン -->
+      <div class="settings-panel" data-panel="base">
+        <div class="single">
+          <div class="card">
+            <header><strong>ベースクローン</strong><span class="muted">コピー元として保持する clone</span><span class="spacer"></span><button class="icon">⟳ すべて更新</button><button class="icon">＋ 追加</button></header>
+            <div class="inner" style="padding:0;">
+              <table class="base-table">
+                <thead><tr><th>リポジトリ</th><th>パス</th><th>既定ブランチ</th><th>最終 fetch</th><th>サイズ</th><th></th></tr></thead>
+                <tbody>
+                  <tr><td class="mono">frontend</td><td class="mono muted">~/.multi-terminals/base/frontend</td><td class="mono">main</td><td class="fresh">12分前</td><td class="num">412 MB</td><td class="actions"><button class="icon">⟳ 更新</button><button class="icon danger">✕</button></td></tr>
+                  <tr><td class="mono">backend</td><td class="mono muted">~/.multi-terminals/base/backend</td><td class="mono">main</td><td class="stale">3日前</td><td class="num">88 MB</td><td class="actions"><button class="icon">⟳ 更新</button><button class="icon danger">✕</button></td></tr>
+                  <tr><td class="mono">shared-libs</td><td class="mono muted">~/.multi-terminals/base/shared-libs</td><td class="mono">develop</td><td class="fresh">12分前</td><td class="num">31 MB</td><td class="actions"><button class="icon">⟳ 更新</button><button class="icon danger">✕</button></td></tr>
+                </tbody>
+              </table>
+              <div style="padding: 10px 14px;">
+                <label class="check"><input type="checkbox" checked /> 環境セットアップの直前に自動で <code>git fetch --prune</code> する</label><br>
+                <label class="check" style="margin-top:6px;"><input type="checkbox" checked /> コピー時に <code>node_modules</code> も含める（npm ci を短縮）</label>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Jira 接続 -->
+      <div class="settings-panel" data-panel="jira">
+        <div class="single">
+          <div class="card">
+            <header><strong>Jira 接続</strong><span class="spacer"></span><span class="fresh">✓ 接続済み</span></header>
+            <div class="inner">
+              <dl class="kv" style="align-items:center;">
+                <dt>サイト</dt><dd><input value="https://acme.atlassian.net" /></dd>
+                <dt>メール</dt><dd><input value="kasamatsu@acme.example" /></dd>
+                <dt>API トークン</dt><dd><div class="inline"><input value="••••••••••••••••" class="mask" type="password" /><button>接続テスト</button></div></dd>
+                <dt>自動取り込み JQL</dt><dd><input value="assignee = currentUser() AND sprint in openSprints()" class="mono" /></dd>
+              </dl>
+              <div class="muted" style="font-size:11px;">トークンは OS のキーチェーンに保存し、設定 JSON には書きません。JQL を設定すると「Jira を同期」で該当タスクを未準備として自動追加します。</div>
+              <div class="cta"><button class="primary">保存</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- リモート設定(既存モーダルの内容を設定画面へ移設) -->
+      <div class="settings-panel" data-panel="remote">
+        <div class="single">
+          <div class="card">
+            <header><strong>この端末の鍵</strong><span class="muted">他の multi-terminals へ接続する側で使う</span></header>
+            <div class="inner">
+              <p class="muted" style="margin:0 0 8px; font-size:12px;">他の端末で実行したいときは、この公開鍵を<strong>実行側（待ち受け側）</strong>の「許可された鍵」に追加してください。<code>ssh://</code> でのリモート実行にはこの鍵は不要です。</p>
+              <div class="pubkey-row"><input readonly value="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGx7mQv4K0v3jZ9c8H2kq1rN5tX0uYpL3wE6aS8dF9gH kasamatsu@mbp" /><button>コピー</button></div>
+              <p class="muted" style="margin:8px 0 0; font-size:11px;">フィンガープリント: <code>SHA256:Qm9vdGxlZy1maW5nZXJwcmludC1mb3ItbW9jaw</code></p>
+              <div class="cta"><button>再作成</button><button class="danger">削除</button></div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:16px;">
+            <header><strong>許可された鍵</strong><span class="muted">この端末での実行を許可</span><span class="spacer"></span><span class="fresh">待ち受け中 :8090</span></header>
+            <div class="inner">
+              <p class="muted" style="margin:0 0 10px; font-size:12px;">1つ以上許可すると、この端末はリモート実行の接続を受け付けます。空の間は待ち受け無効です。</p>
+              <ul class="auth-keys">
+                <li><span>kasamatsu@studio</span><code>SHA256:3k1c…Zp9Q</code><button class="icon danger">✕</button></li>
+                <li><span>ci-runner-01</span><code>SHA256:u8Hn…m2Ta</code><button class="icon danger">✕</button></li>
+              </ul>
+              <div class="field" style="margin-top:12px;">
+                <textarea rows="2" placeholder="ssh-ed25519 AAAA… comment"></textarea>
+              </div>
+              <div class="cta"><button class="primary">鍵を追加</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ショートカット一覧(既存モーダルの内容を設定画面へ移設) -->
+      <div class="settings-panel" data-panel="shortcuts">
+        <div class="single">
+          <div class="card">
+            <header><strong>キーボードショートカット</strong><span class="spacer"></span><span class="muted"><kbd>⌘</kbd><kbd>/</kbd> でどこからでも開けます</span></header>
+            <div class="inner" style="padding:0;">
+              <table class="sc-table">
+                <tbody>
+                  <tr><td><kbd>⌘</kbd><span class="plus">+</span><kbd>1</kbd> … <kbd>9</kbd></td><td>ワークスペースを切替</td></tr>
+                  <tr><td><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Alt</kbd><span class="plus">+</span><kbd>↑</kbd> / <kbd>↓</kbd></td><td>前 / 次のワークスペースへ（端で巡回）</td></tr>
+                  <tr><td><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Shift</kbd><span class="plus">+</span><kbd>A</kbd></td><td>起動中ターミナルの集約表示と通常表示を切替</td></tr>
+                  <tr><td><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Shift</kbd><span class="plus">+</span><kbd>Z</kbd></td><td>アクティブペインを最大化 / 戻す</td></tr>
+                  <tr><td><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Shift</kbd><span class="plus">+</span><kbd>F</kbd></td><td>アクティブペインのフォルダを Finder で開く</td></tr>
+                  <tr><td><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Shift</kbd><span class="plus">+</span><kbd>V</kbd></td><td>アクティブペインのフォルダを VS Code で開く</td></tr>
+                  <tr><td><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Shift</kbd><span class="plus">+</span><kbd>G</kbd></td><td>リモートホストを指定して開く</td></tr>
+                  <tr><td><kbd>Ctrl</kbd><span class="plus">+</span><kbd>Shift</kbd><span class="plus">+</span><kbd>B</kbd></td><td>git メニュー（ブランチ / worktree）</td></tr>
+                  <tr><td><kbd>⌘</kbd><span class="plus">+</span><kbd>/</kbd></td><td>この一覧を開く / 閉じる</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      </div>
+    </section>
+
+
+  </main>
+</div>
+</div>
+
+<!-- ================= 設計メモ ================= -->
+<div class="notes">
+  <div class="card"><div class="inner">
+    <h3>導線のまとめ</h3>
+    <ol>
+      <li><strong>サイドバーはタブ切替をやめて縦積み</strong>: タスク → ワークスペース → アクティブ の順に常時表示。タスクは何十件にもなる前提なので、サイドバーには「作業中 / 環境あり」だけを最大 5 件出し、全件はメインの一覧（フィルタ・並び替え・ページング）に任せる。各セクションは見出しクリックで折りたためて、一覧には高さ上限を付けてワークスペースとアクティブが押し出されないようにする。アクティブ一覧は起動中のペインを全ワークスペース横断で並べ、エージェントの状態（応答待ち / 作業中）を優先して上に出す。タスク一覧がホームになる。</li>
+      <li><strong>Jira から取り込む</strong>: 番号（複数可）→ プレビュー → テンプレート選択 → 「取り込んでセットアップ」で一気通貫。環境は後回しにもできる。</li>
+      <li><strong>タスク詳細</strong>: 左に Jira 情報（読み取り専用 + ローカルメモ）、右に作業環境（フォルダ・ブランチ・リポジトリ・ペイン割当）。ここが環境の編集画面を兼ねる。</li>
+      <li><strong>環境セットアップ</strong>: ステップ実行ログ。失敗ステップで停止し、再実行 / スキップを選ぶ。バックグラウンド続行可。</li>
+      <li><strong>ワークスペース</strong>: 既存画面の上にタスク帯を出し、タスク詳細 / Jira / ステータス変更へ戻れる。サイドバーのワークスペース名にも Jira 番号が付く。</li>
+      <li><strong>設定は右上の ⚙ メニューに集約</strong>: 環境テンプレート / ベースクローン / Jira 接続 / リモート設定 / ショートカット一覧。サイドバー下部のボタン群は廃止し、左ペインは一覧専用にする。</li>
+    </ol>
+  </div></div>
+  <div class="card"><div class="inner">
+    <h3>内部で持つもの（案）</h3>
+<pre>Task            … jiraKey, summary, status(Jira), fields{assignee,priority,epic,sprint},
+                   description, fetchedAt, note(local), localState(none|preparing|ready|working|done),
+                   workDir, branch, repos[], workspaceId?
+EnvTemplate     … name, workDirPattern, branchPattern, layout, repos[{name, source, setup, panes[]}]
+RepoSource      … clone{url} | baseCopy{baseCloneId}
+BaseClone       … name, path, defaultBranch, lastFetchedAt, includeNodeModules
+SetupRun        … taskId, steps[{kind, cmd, state, startedAt, duration, log}]</pre>
+    <ul style="margin-top:10px;">
+      <li>Task は Workspace とは別集約。Workspace 側は <code>taskId</code> を任意で持つだけにして既存機能を壊さない。</li>
+      <li>ベースクローンの「コピー」は <code>cp -R</code> 前提で描いたが、<code>git worktree add</code> や <code>git clone --reference</code> も候補。node_modules を含めてコピーできるのは cp だけ。</li>
+      <li>セットアップは既存の <code>CloneRepository</code> / git ops の延長で、SetupRun をコマンド + 進捗 push（WebSocket）にする想定。</li>
+    </ul>
+  </div></div>
+</div>
+
+<script>
+  (function () {
+    const screens = ['list', 'detail', 'run', 'ws', 'settings'];
+    const flowBtns = document.querySelectorAll('.flow button');
+    const overlay = document.getElementById('import-overlay');
+
+    function show(id) {
+      if (id === 'import') { go('list'); overlay.classList.add('on'); return; }
+      overlay.classList.remove('on');
+      go(id);
+    }
+    function go(id) {
+      screens.forEach(s => document.getElementById('scr-' + s).classList.toggle('on', s === id));
+      flowBtns.forEach(b => b.classList.toggle('on', b.dataset.go === id));
+      try { localStorage.setItem('mt-mock.screen', id); } catch (e) {}
+    }
+    // 設定画面のサブナビ(歯車メニューの項目 / 左ナビ の両方から切替)
+    const setTitles = { templates: '環境テンプレート', base: 'ベースクローン', jira: 'Jira 接続', remote: 'リモート設定', shortcuts: 'ショートカット一覧' };
+    function setPanel(name) {
+      if (!setTitles[name]) name = 'templates';
+      document.querySelectorAll('.settings-panel').forEach(p => p.classList.toggle('on', p.dataset.panel === name));
+      document.querySelectorAll('#settings-nav button').forEach(b => b.classList.toggle('on', b.dataset.set === name));
+      document.getElementById('set-title').textContent = setTitles[name];
+      try { localStorage.setItem('mt-mock.settings', name); } catch (e) {}
+    }
+    document.getElementById('settings-nav').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-set]'); if (b) setPanel(b.dataset.set);
+    });
+
+    // サイドバー各セクションの折りたたみ
+    document.querySelectorAll('.sidebar section.list').forEach((sec, i) => {
+      const key = 'mt-mock.collapsed.' + i;
+      try { if (localStorage.getItem(key) === '1') sec.classList.add('collapsed'); } catch (e) {}
+      sec.querySelector('h2').addEventListener('click', () => {
+        sec.classList.toggle('collapsed');
+        try { localStorage.setItem(key, sec.classList.contains('collapsed') ? '1' : '0'); } catch (e) {}
+      });
+    });
+
+    // 右上の歯車メニュー
+    const gear = document.getElementById('gear');
+    const gearMenu = document.getElementById('gear-menu');
+    function closeMenu() { gearMenu.classList.remove('on'); gear.classList.remove('open'); gear.setAttribute('aria-expanded', 'false'); }
+    gear.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const open = !gearMenu.classList.contains('on');
+      gearMenu.classList.toggle('on', open); gear.classList.toggle('open', open); gear.setAttribute('aria-expanded', String(open));
+    });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.menu-wrap')) closeMenu();
+      const t = e.target.closest('[data-go],[data-close]');
+      if (!t) return;
+      e.preventDefault();
+      if (t.dataset.set) { setPanel(t.dataset.set); closeMenu(); }
+      if (t.dataset.task) {
+        document.querySelectorAll('.sidebar .item[data-task]').forEach(i => i.classList.toggle('active', i === t));
+        const key = t.dataset.task;
+        document.getElementById('d-key').textContent = key;
+      }
+      if (t.hasAttribute('data-close')) overlay.classList.remove('on');
+      if (t.dataset.go) show(t.dataset.go);
+    });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('on'); });
+
+    // 一覧のフィルタチップ
+    document.getElementById('chips').addEventListener('click', (e) => {
+      const c = e.target.closest('.chip'); if (!c) return;
+      document.querySelectorAll('#chips .chip').forEach(x => x.classList.toggle('on', x === c));
+      const f = c.dataset.f;
+      document.querySelectorAll('tr.row').forEach(r => r.classList.toggle('hidden', f !== 'all' && r.dataset.state !== f));
+    });
+
+    // セットアップ進行の再生（モック）
+    const steps = [...document.querySelectorAll('#steps .step')];
+    const durs = ['0.1s', '4.2s', '1.8s', '12.6s', '0.2s', '0.1s'];
+    let timer = null;
+    function resetRun() {
+      clearTimeout(timer);
+      steps.forEach(s => { s.className = 'step pending'; s.querySelector('.ic').textContent = '○'; s.querySelector('.dur').textContent = ''; const l = s.querySelector('.log'); if (l) l.hidden = true; });
+      document.getElementById('run-bar').style.width = '0';
+      document.getElementById('run-prog').textContent = '0 / ' + steps.length;
+      document.getElementById('done-banner').classList.remove('on');
+      document.getElementById('run-start').disabled = false;
+    }
+    function play() {
+      resetRun();
+      document.getElementById('run-start').disabled = true;
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      let i = 0;
+      function tick() {
+        if (i > 0) {
+          const p = steps[i - 1];
+          p.className = 'step done'; p.querySelector('.ic').textContent = '✓'; p.querySelector('.dur').textContent = durs[i - 1];
+          const l = p.querySelector('.log'); if (l) l.hidden = false;
+          document.getElementById('run-bar').style.width = (i / steps.length * 100) + '%';
+          document.getElementById('run-prog').textContent = i + ' / ' + steps.length;
+        }
+        if (i === steps.length) { document.getElementById('done-banner').classList.add('on'); return; }
+        const s = steps[i];
+        s.className = 'step run'; s.querySelector('.ic').textContent = '◐';
+        i++;
+        timer = setTimeout(tick, reduce ? 0 : [300, 900, 700, 1400, 400, 300][i - 1]);
+      }
+      tick();
+    }
+    document.getElementById('run-start').addEventListener('click', play);
+    document.getElementById('run-reset').addEventListener('click', resetRun);
+    document.getElementById('run-abort').addEventListener('click', resetRun);
+
+    // 初期画面: URL ハッシュ(#settings/remote, #ws, #menu など)があれば優先、なければ前回の画面
+    let initial = 'list';
+    try { initial = localStorage.getItem('mt-mock.screen') || 'list'; } catch (e) {}
+    let initialSet = 'templates';
+    try { initialSet = localStorage.getItem('mt-mock.settings') || 'templates'; } catch (e) {}
+    const hash = location.hash.replace(/^#/, '').split('/');
+    if (hash[0] && (screens.includes(hash[0]) || hash[0] === 'import')) { initial = hash[0]; if (hash[1]) initialSet = hash[1]; }
+    if (!screens.includes(initial)) initial = 'list';
+    setPanel(initialSet);
+    show(initial);
+    if (hash[0] === 'menu' || hash[1] === 'menu') gear.click();
+  })();
+</script>
+</body>
+</html>

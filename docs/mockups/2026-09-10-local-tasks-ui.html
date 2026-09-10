@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>multi-terminals ローカルタスク案</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* 既存 frontend/src/app.css のトークンを踏襲（アプリはダーク固定） */
+  :root {
+    --bg: #14161a;
+    --panel: #1b1e24;
+    --panel-2: #21252c;
+    --panel-3: #282d36;
+    --border: #2c313a;
+    --border-2: #3a404b;
+    --text: #d6dae0;
+    --text-strong: #ffffff;
+    --muted: #8a909a;
+    --accent: #3b82f6;
+    --accent-bg: rgba(59, 130, 246, 0.15);
+    --good: #22c55e;
+    --good-bg: rgba(34, 197, 94, 0.14);
+    --warn: #f59e0b;
+    --warn-bg: rgba(245, 158, 11, 0.14);
+    --danger: #ef4444;
+    --danger-bg: rgba(239, 68, 68, 0.14);
+    --jira: #4c9aff;
+    --sans: system-ui, 'Segoe UI', Roboto, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0e1013;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  code, kbd, .mono { font-family: var(--mono); font-size: 12px; }
+  button {
+    font-family: inherit; cursor: pointer;
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+    border-radius: 6px; padding: 6px 10px; font-size: 13px; line-height: 1.3;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.icon { padding: 2px 6px; font-size: 12px; }
+  button.danger { color: var(--danger); }
+  button.ghost { background: transparent; }
+  input, select, textarea {
+    font-family: inherit; background: var(--panel); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 13px; width: 100%;
+  }
+  textarea { resize: vertical; }
+  .muted { color: var(--muted); }
+  .spacer { flex: 1; }
+
+  /* ---- モック外枠（画面切替バー） ---- */
+  .mockbar {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    padding: 12px 18px; border-bottom: 1px solid var(--border);
+    background: var(--panel); position: sticky; top: 0; z-index: 20;
+  }
+  .mockbar .title { font-weight: 600; color: var(--text-strong); }
+  .mockbar .title small { color: var(--muted); font-weight: 400; margin-left: 8px; }
+  .flow { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+  .flow button {
+    border-radius: 999px; padding: 4px 12px; font-size: 12px; background: transparent;
+  }
+  .flow button.on { background: var(--accent-bg); border-color: var(--accent); color: var(--text-strong); }
+  .flow .arrow { color: var(--muted); font-size: 11px; padding: 0 2px; }
+  .flow .sep { width: 1px; height: 18px; background: var(--border-2); margin: 0 6px; }
+
+  .stage { padding: 18px; overflow-x: auto; }
+  .frame {
+    min-width: 1180px; max-width: 1440px; margin: 0 auto;
+    border: 1px solid var(--border-2); border-radius: 10px; overflow: hidden;
+    background: var(--bg); box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+    display: grid; grid-template-columns: 260px 1fr; grid-template-rows: auto 1fr; height: 800px;
+  }
+
+  /* ---- サイドバー（既存構造を踏襲 + タスク） ---- */
+  .sidebar { background: var(--panel); border-right: 1px solid var(--border); padding: 14px; overflow-y: auto; display: flex; flex-direction: column; }
+  .sidebar h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 16px 0 8px; display: flex; align-items: center; gap: 6px; }
+  .sidebar h2 .count { margin-left: auto; font-size: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
+  .list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .item {
+    width: 100%; text-align: left; display: grid; grid-template-columns: auto 1fr auto; column-gap: 8px; align-items: center;
+    padding: 6px 8px;
+  }
+  .item.active { border-color: var(--accent); background: var(--accent-bg); }
+  .item .key { font-family: var(--mono); font-size: 11px; color: var(--jira); }
+  .item .sum { grid-column: 1 / -1; font-size: 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .ws-key { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 3px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+  .dot.working { background: var(--good); box-shadow: 0 0 0 3px var(--good-bg); }
+  .dot.ready { background: var(--accent); }
+  .dot.none { background: transparent; border: 1.5px solid var(--muted); }
+  .dot.done { background: var(--muted); }
+  .badge { font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; white-space: nowrap; }
+  .badge.jira { color: var(--jira); border-color: rgba(76,154,255,0.35); font-family: var(--mono); }
+  .agent-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 0 5px; }
+  .agent-badge .st { color: var(--good); }
+  /* アクティブ一覧: ワークスペースの下に常時表示。タブ切替ではなく一覧として置く */
+  /* セクション見出しはクリックで折りたたみ。1 セクションが伸びても他を押し出さないよう一覧に高さ上限 */
+  .sidebar h2 { cursor: pointer; user-select: none; }
+  .sidebar h2 .chev { font-size: 9px; color: var(--muted); transition: transform .15s; }
+  .sidebar section.collapsed h2 .chev { transform: rotate(-90deg); }
+  .sidebar section.collapsed > *:not(h2) { display: none; }
+  .sidebar .list ul { max-height: 230px; overflow-y: auto; scrollbar-width: thin; }
+  .sidebar .active-list ul { max-height: 260px; }
+  .sidebar .task-list .hint { font-size: 11px; color: var(--muted); margin: 6px 0 0; }
+  .sidebar .task-list .more { width: 100%; margin-top: 6px; text-align: left; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .sidebar .task-list .more .n { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .sidebar .active-list { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 2px; }
+  .sidebar .active-list h2 .live { color: var(--good); text-transform: none; letter-spacing: 0; }
+  .act { grid-template-columns: auto 1fr auto; row-gap: 2px; }
+  .act .dir { font-family: var(--mono); font-size: 11.5px; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .act .where { grid-column: 2 / -1; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .act .where b { font-weight: 500; color: var(--text); }
+  .act .st { font-size: 10px; border-radius: 8px; padding: 0 6px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .act .st.working { color: var(--good); border-color: rgba(34,197,94,0.4); background: var(--good-bg); }
+  .act .st.blocked { color: var(--warn); border-color: rgba(245,158,11,0.45); background: var(--warn-bg); }
+  .sidebar .active-list .foot { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; }
+  .sidebar .active-list .foot button { font-size: 11px; padding: 3px 8px; }
+  .sidebar .active-list .foot label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+  .sidebar .active-list .foot input { width: auto; }
+
+  /* ---- アプリバー(画面最上部・全幅)。設定系はここに集約 ---- */
+  .appbar {
+    grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px; height: 40px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  .appbar h1 { font-size: 15px; margin: 0; color: var(--text-strong); font-weight: 600; letter-spacing: 0.01em; }
+  .appbar .ver { font-family: var(--mono); font-size: 10px; color: var(--muted); border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; }
+  .appbar .status { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); margin-left: 6px; }
+  .appbar .status .dot { width: 6px; height: 6px; box-shadow: none; }
+  .appbar .actions { display: flex; align-items: center; gap: 4px; }
+  .appbar .actions > button, .menu-wrap > button { background: transparent; border-color: transparent; padding: 4px 8px; font-size: 12px; color: var(--text); }
+  .appbar .actions > button:hover, .menu-wrap > button:hover { background: var(--panel-2); border-color: var(--border); }
+  .appbar .actions kbd { font-size: 10px; border: 1px solid var(--border-2); border-radius: 3px; padding: 0 4px; color: var(--muted); background: var(--panel-2); }
+  .menu-wrap { position: relative; }
+  .menu-wrap > button.open { background: var(--panel-2); border-color: var(--border); }
+  .menu {
+    display: none; position: absolute; right: 0; top: calc(100% + 6px); min-width: 240px; z-index: 30;
+    background: var(--panel-2); border: 1px solid var(--border-2); border-radius: 8px; padding: 6px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+  }
+  .menu.on { display: block; }
+  .menu .grp { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 6px 8px 2px; }
+  .menu button { width: 100%; display: flex; align-items: center; gap: 8px; text-align: left; background: transparent; border-color: transparent; padding: 6px 8px; border-radius: 5px; }
+  .menu button:hover { background: var(--panel-3); border-color: transparent; }
+  .menu button .ic { width: 16px; text-align: center; }
+  .menu button .hint { margin-left: auto; font-size: 10px; color: var(--muted); font-family: var(--mono); }
+  .menu hr { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
+
+  /* 設定画面: 左にサブナビ、右にパネル */
+  .settings-wrap { display: grid; grid-template-columns: 180px 1fr; flex: 1; min-height: 0; }
+  .settings-nav { border-right: 1px solid var(--border); background: var(--panel); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .settings-nav .grp { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 8px 8px 4px; }
+  .settings-nav button { text-align: left; background: transparent; border-color: transparent; padding: 6px 8px; display: flex; gap: 8px; align-items: center; }
+  .settings-nav button.on { background: var(--accent-bg); border-color: var(--accent); color: var(--text-strong); }
+  .settings-panel { display: none; overflow-y: auto; min-height: 0; }
+  .settings-panel.on { display: block; }
+  .settings-panel .single { max-width: 760px; padding: 16px; }
+  .pubkey-row { display: flex; gap: 6px; }
+  .pubkey-row input { font-family: var(--mono); font-size: 11px; }
+  .pubkey-row button { white-space: nowrap; }
+  .auth-keys { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .auth-keys li { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; background: var(--panel-2); }
+  .auth-keys code { color: var(--muted); font-size: 11px; }
+  .sc-table th:first-child { width: 220px; }
+  .sc-table td:first-child { white-space: nowrap; }
+  .sc-table kbd { border: 1px solid var(--border-2); border-radius: 3px; padding: 0 5px; background: var(--panel-2); font-size: 11px; }
+  .sc-table .plus { color: var(--muted); margin: 0 3px; }
+
+  /* ---- メイン ---- */
+  .main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  .screen { display: none; flex-direction: column; height: 100%; min-height: 0; }
+  .screen.on { display: flex; }
+  .toolbar {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  .toolbar strong { color: var(--text-strong); font-size: 14px; }
+  .toolbar input, .toolbar select { width: auto; }
+  .toolbar .search { width: 220px; }
+  .crumb { color: var(--muted); }
+  .crumb a { color: var(--text); text-decoration: none; }
+  .crumb a:hover { color: var(--accent); }
+  .body { padding: 16px; overflow-y: auto; flex: 1; min-height: 0; }
+
+  /* 状態チップ（フィルタ兼サマリー） */
+  .chips { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 10px; font-size: 12px; background: var(--panel); }
+  .chip.on { border-color: var(--accent); color: var(--text-strong); }
+  .chip .n { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+  /* テーブル */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  tr.row:hover td { background: var(--panel); }
+  tr.row.hidden { display: none; }
+  td .key { font-family: var(--mono); color: var(--jira); font-size: 12px; }
+  td .sum { color: var(--text-strong); }
+  td .sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+  .pill.todo { background: var(--panel-3); color: var(--text); }
+  .pill.prog { background: var(--accent-bg); color: #9cc2ff; }
+  .pill.review { background: var(--warn-bg); color: #ffc46b; }
+  .pill.done { background: var(--good-bg); color: #6ee7a0; }
+  .state { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .repos { display: flex; gap: 4px; flex-wrap: wrap; }
+  .repo-tag { font-family: var(--mono); font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; color: var(--text); }
+  .repo-tag.base::before { content: '⧉ '; color: var(--muted); }
+  .repo-tag.clone::before { content: '⤓ '; color: var(--muted); }
+  .actions { display: flex; gap: 4px; justify-content: flex-end; white-space: nowrap; }
+  .actions button { padding: 3px 8px; font-size: 12px; }
+
+  .legend { display: flex; gap: 14px; margin-top: 12px; color: var(--muted); font-size: 11px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+
+  /* ---- モーダル ---- */
+  .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 10; }
+  .overlay.on { display: flex; }
+  .modal { width: 640px; max-width: calc(100% - 40px); background: var(--panel); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 24px 60px rgba(0,0,0,0.5); display: flex; flex-direction: column; max-height: 92%; }
+  .modal header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .modal header strong { color: var(--text-strong); font-size: 14px; }
+  .modal .content { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+  .modal footer { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field label { font-size: 12px; color: var(--muted); }
+  .field .hint { font-size: 11px; color: var(--muted); }
+  .inline { display: flex; gap: 8px; align-items: center; }
+  .inline input { flex: 1; }
+  .check { display: inline-flex; align-items: center; gap: 6px; }
+  .check input { width: auto; }
+
+  /* Jira プレビューカード */
+  .jira-card { border: 1px solid var(--border); border-left: 3px solid var(--jira); border-radius: 6px; background: var(--panel-2); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .jira-card .head { display: flex; align-items: center; gap: 10px; }
+  .jira-card .head .key { font-family: var(--mono); color: var(--jira); }
+  .jira-card .head .sum { color: var(--text-strong); font-weight: 500; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: 12px; }
+  .kv dt { color: var(--muted); margin: 0; }
+  .kv dd { margin: 0; }
+  .desc { font-size: 12px; color: var(--text); white-space: pre-wrap; border-top: 1px dashed var(--border); padding-top: 8px; }
+  .tpl-preview { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tpl-preview .box { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-size: 12px; }
+  .tpl-preview .box h4 { margin: 0 0 6px; font-size: 11px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+  .tpl-preview ul { margin: 0; padding-left: 16px; }
+
+  /* ---- タスク詳細 ---- */
+  .detail-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px 0; }
+  .detail-head .key { font-family: var(--mono); color: var(--jira); font-size: 13px; }
+  .detail-head h3 { margin: 0; font-size: 18px; color: var(--text-strong); font-weight: 600; text-wrap: balance; }
+  .detail-head .link { color: var(--muted); font-size: 12px; text-decoration: none; }
+  .detail-head .link:hover { color: var(--accent); }
+  .cols { display: grid; grid-template-columns: 1fr 1.25fr; gap: 16px; padding: 16px; align-items: start; }
+  .card { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+  .card > header { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .card > header strong { color: var(--text-strong); font-size: 13px; }
+  .card > .inner { padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+  .card.env { border-color: var(--border-2); }
+  .path { font-family: var(--mono); font-size: 12px; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 3px 7px; }
+  .repo-list { display: flex; flex-direction: column; gap: 6px; }
+  .repo-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--panel-2); }
+  .repo-row .name { font-family: var(--mono); color: var(--text-strong); font-size: 12px; }
+  .repo-row .meta { grid-column: 1 / -1; display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+  .repo-row .meta code { color: var(--text); }
+  .repo-row .st { font-size: 11px; }
+  .layout-mini { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; width: 100%; }
+  .layout-mini div { border: 1px solid var(--border-2); border-radius: 4px; padding: 6px 8px; font-size: 11px; background: var(--bg); min-height: 44px; }
+  .layout-mini .n { color: var(--muted); font-family: var(--mono); }
+  .layout-mini .r { color: var(--text-strong); font-family: var(--mono); display: block; }
+  .layout-mini .c { color: var(--muted); font-family: var(--mono); display: block; }
+  .steps-mini { margin: 0; padding-left: 18px; font-family: var(--mono); font-size: 11.5px; color: var(--text); line-height: 1.8; }
+  .cta { display: flex; gap: 8px; align-items: center; }
+  .cta .primary { padding: 9px 14px; font-size: 13px; }
+  .progress-note { font-size: 11px; color: var(--muted); }
+
+  /* ---- セットアップ実行 ---- */
+  .run-wrap { padding: 16px; display: grid; grid-template-columns: 1fr 380px; gap: 16px; align-items: start; }
+  .bar { height: 6px; background: var(--panel-3); border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s ease; }
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .step { display: grid; grid-template-columns: 22px 1fr auto; column-gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--border); align-items: start; }
+  .step:last-child { border-bottom: 0; }
+  .step .ic { font-family: var(--mono); font-size: 13px; text-align: center; color: var(--muted); }
+  .step.done .ic { color: var(--good); }
+  .step.run .ic { color: var(--accent); }
+  .step.fail .ic { color: var(--danger); }
+  .step .t { color: var(--text-strong); }
+  .step.pending .t { color: var(--muted); }
+  .step .sub { font-family: var(--mono); font-size: 11px; color: var(--muted); grid-column: 2; }
+  .step .dur { font-family: var(--mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .step .log { grid-column: 2 / -1; margin-top: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-family: var(--mono); font-size: 11px; color: var(--text); white-space: pre; overflow-x: auto; max-height: 96px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .step.run .ic { animation: spin 1s linear infinite; display: inline-block; }
+  @media (prefers-reduced-motion: reduce) { .step.run .ic { animation: none; } .bar i { transition: none; } }
+  .run-side .card + .card { margin-top: 12px; }
+  .done-banner { display: none; border: 1px solid rgba(34,197,94,0.4); background: var(--good-bg); border-radius: 8px; padding: 12px 14px; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .done-banner.on { display: flex; }
+  .done-banner strong { color: #6ee7a0; }
+
+  /* ---- ワークスペース（タスクバナー付き） ---- */
+  .task-strip { display: flex; align-items: center; gap: 10px; padding: 6px 14px; background: var(--panel-2); border-bottom: 1px solid var(--border); font-size: 12px; }
+  .task-strip .key { font-family: var(--mono); color: var(--jira); }
+  .task-strip .sum { color: var(--text-strong); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 6px; padding: 8px; flex: 1; min-height: 0; }
+  .cell { border: 1px solid var(--border); border-radius: 6px; background: #0b0d10; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .cell.active-cell { border-color: var(--accent); }
+  .cell-head { display: flex; align-items: center; gap: 8px; padding: 5px 8px; background: var(--panel); border-bottom: 1px solid var(--border); font-size: 12px; }
+  .cell-head .dir { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .cell-head .git { font-family: var(--mono); font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+  .term { font-family: var(--mono); font-size: 11.5px; padding: 8px 10px; color: #b7bec8; white-space: pre; line-height: 1.55; overflow: hidden; }
+  .term .p { color: #6ee7a0; }
+  .term .c { color: #9cc2ff; }
+  .term .cur { background: #b7bec8; color: #0b0d10; }
+
+  /* ---- 設定 ---- */
+  .settings { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; align-items: start; }
+  .settings .full { grid-column: 1 / -1; }
+  .tpl { display: flex; flex-direction: column; gap: 6px; }
+  .tpl-row { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--panel-2); display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; }
+  .tpl-row.sel { border-color: var(--accent); }
+  .tpl-row .n { color: var(--text-strong); font-weight: 500; }
+  .tpl-row .d { grid-column: 1 / -1; font-size: 11px; color: var(--muted); }
+  .base-table td { padding: 7px 10px; }
+  .fresh { color: var(--good); }
+  .stale { color: var(--warn); }
+  .mask { font-family: var(--mono); letter-spacing: 0.15em; }
+
+  /* ---- 設計メモ ---- */
+  .notes { max-width: 1180px; margin: 24px auto 40px; padding: 0 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .notes .card .inner { font-size: 12.5px; }
+  .notes h3 { margin: 0 0 8px; font-size: 13px; color: var(--text-strong); }
+  .notes ul, .notes ol { margin: 0; padding-left: 18px; }
+  .notes li { margin: 3px 0; }
+  .notes pre { margin: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-family: var(--mono); font-size: 11.5px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<style>
+  /* ---- このモック固有 ---- */
+  .frame { grid-template-rows: auto 1fr; height: 820px; }
+  .appbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 14px; height: 40px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  .appbar h1 { font-size: 15px; margin: 0; color: var(--text-strong); }
+  .appbar .actions { display: flex; align-items: center; gap: 4px; }
+  .appbar .actions > button { background: transparent; border-color: transparent; padding: 4px 8px; font-size: 12px; }
+  .appbar .actions kbd { font-size: 10px; border: 1px solid var(--border-2); border-radius: 3px; padding: 0 4px; color: var(--muted); background: var(--panel-2); }
+  .src { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; border-radius: 8px; padding: 0 6px; border: 1px solid var(--border); white-space: nowrap; }
+  .src.jira { color: var(--jira); border-color: rgba(76,154,255,0.35); }
+  .src.local { color: #c4b5fd; border-color: rgba(167,139,250,0.4); background: rgba(167,139,250,0.10); }
+  .key.local { color: #c4b5fd; }
+  .item .key.local { color: #c4b5fd; }
+  .sidebar h2 .sub { text-transform: none; letter-spacing: 0; font-weight: 400; margin-left: 4px; }
+  .sidebar section.list ul { max-height: 230px; overflow-y: auto; }
+  .sidebar .task-list .more { width: 100%; margin-top: 6px; text-align: left; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .sidebar .task-list .more .n { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--muted); }
+  .sidebar .active-list { border-top: 1px solid var(--border); margin-top: 14px; padding-top: 2px; }
+  .act { grid-template-columns: auto 1fr auto; row-gap: 2px; }
+  .act .dir { font-family: var(--mono); font-size: 11.5px; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .act .where { grid-column: 2 / -1; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .act .where b { font-weight: 500; color: var(--text); }
+  .act .st { font-size: 10px; border-radius: 8px; padding: 0 6px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .act .st.working { color: var(--good); border-color: rgba(34,197,94,0.4); background: var(--good-bg); }
+  .act .st.blocked { color: var(--warn); border-color: rgba(245,158,11,0.45); background: var(--warn-bg); }
+  /* 作成モーダルのタブ */
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 18px; }
+  .tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 10px 12px; color: var(--muted); }
+  .tabs button.on { color: var(--text-strong); border-bottom-color: var(--accent); }
+  .tabs button:hover { border-color: transparent; border-bottom-color: var(--border-2); }
+  .form2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+  .form2 .full { grid-column: 1 / -1; }
+  .field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+  .field > span { color: var(--muted); }
+  .field .row { display: flex; gap: 6px; align-items: center; }
+  .field .row input { flex: 1; }
+  .keygen { display: flex; gap: 6px; align-items: center; }
+  .keygen .pfx { font-family: var(--mono); color: #c4b5fd; }
+  .chips-in { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chips-in .chip { padding: 1px 8px; font-size: 11px; }
+  .status-select { display: inline-flex; align-items: center; gap: 6px; }
+  .status-select select { width: auto; padding: 2px 6px; font-size: 12px; }
+  .callout { border: 1px solid rgba(167,139,250,0.4); background: rgba(167,139,250,0.08); border-radius: 8px; padding: 10px 12px; font-size: 12px; }
+  .callout b { color: #c4b5fd; }
+  .edit-kv dd input, .edit-kv dd select, .edit-kv dd textarea { width: 100%; }
+  .link-jira { border: 1px dashed var(--border-2); border-radius: 8px; padding: 10px 12px; display: flex; gap: 8px; align-items: center; font-size: 12px; }
+  .link-jira input { width: 160px; }
+  .modal.wide { width: min(720px, calc(100vw - 40px)); }
+  .flow .arrow { color: var(--muted); }
+  .overlay { display: none; position: absolute; inset: 0; background: rgba(0,0,0,0.55); align-items: center; justify-content: center; z-index: 10; }
+  .overlay.on { display: flex; }
+  .modal { background: var(--panel); border: 1px solid var(--border-2); border-radius: 10px; display: flex; flex-direction: column; max-height: 90%; box-shadow: 0 24px 60px rgba(0,0,0,0.5); }
+  .modal header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .modal header strong { color: var(--text-strong); font-size: 14px; }
+  .modal .content { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; }
+  .modal footer { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .settings-wrap { display: grid; grid-template-columns: 180px 1fr; flex: 1; min-height: 0; }
+  .settings-nav { border-right: 1px solid var(--border); background: var(--panel); padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+  .settings-nav .grp { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 8px 8px 4px; }
+  .settings-nav button { text-align: left; background: transparent; border-color: transparent; padding: 6px 8px; }
+  .settings-nav button.on { background: var(--accent-bg); border-color: var(--accent); color: var(--text-strong); }
+  .status-list { display: flex; flex-direction: column; gap: 6px; }
+  .status-list .row { display: grid; grid-template-columns: 24px 1fr 130px auto; gap: 8px; align-items: center; }
+  .status-list .row .handle { color: var(--muted); text-align: center; cursor: grab; }
+  td.key { white-space: nowrap; }
+  .state-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-start; }
+</style>
+
+<div class="mockbar">
+  <span class="title">Jira に依存しないタスク（ローカルタスク）UI 案 <small>2026-09-10 · クリックで画面を切替</small></span>
+  <div class="flow" role="tablist" aria-label="画面の導線">
+    <button class="on" data-go="list">1 一覧（Jira とローカルが混在）</button><span class="arrow">→</span>
+    <button data-go="create">2 手動で作成</button><span class="arrow">→</span>
+    <button data-go="detail">3 ローカルタスクの詳細</button>
+    <span class="sep"></span>
+    <button data-go="settings">⚙ ローカルタスクの設定</button>
+  </div>
+</div>
+
+<div class="stage">
+<div class="frame" style="position: relative;">
+
+  <header class="appbar">
+    <h1>multi-terminals</h1>
+    <span class="spacer"></span>
+    <div class="actions">
+      <button title="ショートカット一覧 (⌘/)"><kbd>⌘</kbd><kbd>/</kbd></button>
+      <button data-go="settings">⚙ 設定 ▾</button>
+    </div>
+  </header>
+
+  <!-- ================= サイドバー ================= -->
+  <aside class="sidebar">
+    <section class="list task-list">
+      <h2>タスク <span class="sub muted">· 進行中</span><span class="count">3 / 9</span></h2>
+      <ul>
+        <li><button class="item" data-go="list">
+          <span class="dot working"></span><span class="key">PROJ-1284</span><span class="agent-badge">claude <span class="st">●1</span></span>
+          <span class="sum">決済画面のバリデーション修正</span>
+        </button></li>
+        <li><button class="item active" data-go="detail">
+          <span class="dot working"></span><span class="key local">T-007</span><span class="src local">📝 ローカル</span>
+          <span class="sum">ローカル開発環境の Docker 化</span>
+        </button></li>
+        <li><button class="item" data-go="list">
+          <span class="dot ready"></span><span class="key">PROJ-1301</span><span class="badge">環境あり</span>
+          <span class="sum">Jira 連携の設定画面</span>
+        </button></li>
+      </ul>
+      <button class="more" data-go="list">📋 すべてのタスク <span class="n">9 →</span></button>
+    </section>
+
+    <section class="list">
+      <h2>ワークスペース <span class="count">3</span></h2>
+      <ul>
+        <li><button class="item"><span class="ws-key">⌘1</span><span class="key" style="color:var(--text)">PROJ-1284 決済バリデーション</span><span class="badge">4分割</span></button></li>
+        <li><button class="item"><span class="ws-key">⌘2</span><span class="key" style="color:var(--text)">T-007 Docker 化</span><span class="badge">左右</span></button></li>
+        <li><button class="item"><span class="ws-key">⌘3</span><span class="key" style="color:var(--text)">PROJ-1301 Jira 設定画面</span><span class="badge">4分割</span></button></li>
+      </ul>
+    </section>
+
+    <section class="list active-list">
+      <h2>⚡ アクティブ <span class="count">3</span></h2>
+      <ul>
+        <li><button class="item act"><span class="dot working"></span><span class="dir">backend</span><span class="st working">claude · 作業中</span><span class="where"><b>PROJ-1284</b> 決済バリデーション · pane 1</span></button></li>
+        <li><button class="item act"><span class="dot working"></span><span class="dir">infra</span><span class="st">docker compose up</span><span class="where"><b>T-007</b> Docker 化 · pane 0</span></button></li>
+        <li><button class="item act"><span class="dot working"></span><span class="dir">infra</span><span class="st">$</span><span class="where"><b>T-007</b> Docker 化 · pane 1</span></button></li>
+      </ul>
+    </section>
+  </aside>
+
+  <!-- ================= メイン ================= -->
+  <main class="main">
+
+    <!-- 1. 一覧 -->
+    <section class="screen on" id="scr-list">
+      <div class="toolbar">
+        <strong>タスク</strong>
+        <input class="search" placeholder="番号・概要・担当で絞り込み" />
+        <span class="spacer"></span>
+        <span class="muted">最終同期 12:41</span>
+        <button>⟳ Jira を同期</button>
+        <button class="primary" data-go="create">＋ タスクを追加 ▾</button>
+      </div>
+      <div class="body">
+        <div class="chips">
+          <button class="chip on">すべて <span class="n">9</span></button>
+          <button class="chip"><span class="dot working"></span>作業中 <span class="n">2</span></button>
+          <button class="chip"><span class="dot ready"></span>環境あり <span class="n">2</span></button>
+          <button class="chip"><span class="dot none"></span>未準備 <span class="n">4</span></button>
+          <button class="chip"><span class="dot done"></span>完了 <span class="n">1</span></button>
+          <span style="width:1px; height:18px; background:var(--border-2); margin:0 4px;"></span>
+          <button class="chip on">取込元: すべて</button>
+          <button class="chip"><span class="src jira" style="border:0; padding:0">Jira</span> 6</button>
+          <button class="chip"><span class="src local" style="border:0; padding:0; background:transparent">📝 ローカル</span> 3</button>
+          <span class="spacer"></span>
+          <select style="width:auto; padding:3px 8px; font-size:12px;"><option>並び: ローカル状態 → 更新日時</option><option>並び: 優先度</option><option>並び: 番号</option></select>
+        </div>
+        <table>
+          <thead><tr>
+            <th>番号</th><th>概要</th><th>ステータス</th><th>ローカル</th><th>リポジトリ</th><th>ワークスペース</th><th>更新</th><th></th>
+          </tr></thead>
+          <tbody>
+            <tr class="row">
+              <td class="key"><span class="src jira">Jira</span> PROJ-1284</td>
+              <td class="summary"><div class="sum">決済画面のバリデーション修正</div><div class="meta muted">担当: 笠松 · 優先度: High · スプリント 42</div></td>
+              <td><span class="pill">In Progress</span></td>
+              <td><span class="dot working"></span> 作業中 <span class="agent-badge">claude <span class="st">●1</span></span></td>
+              <td><span class="repo-tag">⧉ frontend</span><span class="repo-tag">⧉ backend</span></td>
+              <td>⌘1 PROJ-1284 決済…</td>
+              <td class="num">3分前</td>
+              <td class="actions"><button class="primary">開く</button><button>詳細</button></td>
+            </tr>
+            <tr class="row" style="background: rgba(167,139,250,0.04);">
+              <td class="key"><span class="src local">📝 ローカル</span> <span class="local">T-007</span></td>
+              <td class="summary"><div class="sum">ローカル開発環境の Docker 化</div><div class="meta muted">優先度: Medium · ラベル: infra, dx</div></td>
+              <td><span class="status-select"><select><option>To Do</option><option selected>In Progress</option><option>Done</option></select></span></td>
+              <td><span class="dot working"></span> 作業中</td>
+              <td><span class="repo-tag">⤓ infra</span></td>
+              <td>⌘2 T-007 Docker 化</td>
+              <td class="num">12分前</td>
+              <td class="actions"><button class="primary">開く</button><button>詳細</button></td>
+            </tr>
+            <tr class="row">
+              <td class="key"><span class="src jira">Jira</span> PROJ-1301</td>
+              <td class="summary"><div class="sum">Jira 連携の設定画面</div><div class="meta muted">担当: 笠松 · 優先度: Medium · スプリント 42</div></td>
+              <td><span class="pill">To Do</span></td>
+              <td><span class="dot ready"></span> 環境あり</td>
+              <td><span class="repo-tag">⧉ frontend</span><span class="repo-tag">⤓ backend</span></td>
+              <td>⌘3 PROJ-1301 Jira…</td>
+              <td class="num">昨日</td>
+              <td class="actions"><button class="primary">開く</button><button>詳細</button></td>
+            </tr>
+            <tr class="row" style="background: rgba(167,139,250,0.04);">
+              <td class="key"><span class="src local">📝 ローカル</span> <span class="local">T-006</span></td>
+              <td class="summary"><div class="sum">README の英語版を書く</div><div class="meta muted">優先度: Low · ラベル: docs · 🔗 リンク 1</div></td>
+              <td><span class="status-select"><select><option selected>To Do</option><option>In Progress</option><option>Done</option></select></span></td>
+              <td><span class="dot ready"></span> 環境あり</td>
+              <td><span class="repo-tag">⤓ multi-terminals</span></td>
+              <td class="muted">—（環境あり・WS なし）</td>
+              <td class="num">2日前</td>
+              <td class="actions"><button>▶ 作り直す</button><button>詳細</button></td>
+            </tr>
+            <tr class="row">
+              <td class="key"><span class="src jira">Jira</span> PROJ-1290</td>
+              <td class="summary"><div class="sum">ログ出力の JSON 化</div><div class="meta muted">担当: 未割当 · 優先度: Low</div></td>
+              <td><span class="pill">To Do</span></td>
+              <td><span class="dot none"></span> 未準備</td>
+              <td class="muted">テンプレート: backend のみ</td>
+              <td class="muted">—</td>
+              <td class="num">2日前</td>
+              <td class="actions"><button class="primary">▶ 環境を作る</button><button>詳細</button></td>
+            </tr>
+            <tr class="row" style="background: rgba(167,139,250,0.04);">
+              <td class="key"><span class="src local">📝 ローカル</span> <span class="local">T-005</span></td>
+              <td class="summary"><div class="sum">依存ライブラリの脆弱性対応（npm audit）</div><div class="meta muted">優先度: High · ラベル: security · <span style="color:var(--jira)">Jira 紐付け待ち</span></div></td>
+              <td><span class="status-select"><select><option selected>To Do</option><option>In Progress</option><option>Done</option></select></span></td>
+              <td><span class="dot none"></span> 未準備</td>
+              <td class="muted">テンプレート: web-app 標準</td>
+              <td class="muted">—</td>
+              <td class="num">3日前</td>
+              <td class="actions"><button class="primary">▶ 環境を作る</button><button>詳細</button></td>
+            </tr>
+            <tr class="row">
+              <td class="key"><span class="src jira">Jira</span> PROJ-1266</td>
+              <td class="summary"><div class="sum">CI の node 22 移行</div><div class="meta muted">担当: 笠松 · Done</div></td>
+              <td><span class="pill">Done</span></td>
+              <td><span class="dot done"></span> 完了</td>
+              <td><span class="repo-tag">⤓ frontend</span></td>
+              <td class="muted">削除済み</td>
+              <td class="num">8日前</td>
+              <td class="actions"><button>🗑 作業フォルダを削除</button><button>詳細</button></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="legend muted" style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-top:10px; font-size:11px;">
+          <span><span class="src jira">Jira</span> = Jira から取り込み（読み取り専用。同期で更新）</span>
+          <span><span class="src local">📝 ローカル</span> = 手動で作成（概要・ステータス・説明をこの画面で編集）</span>
+          <span class="spacer"></span>
+          <span>1–7 / 9 件</span><button class="icon" disabled>‹</button><button class="icon">›</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 作成モーダル（一覧の上に重ねる） -->
+    <div class="overlay" id="create-overlay">
+      <div class="modal wide" role="dialog" aria-labelledby="crt-title">
+        <header><strong id="crt-title">タスクを追加</strong><span class="spacer"></span><button class="icon" data-close>✕</button></header>
+        <div class="tabs">
+          <button data-tab="jira">🔗 Jira から取り込む</button>
+          <button class="on" data-tab="local">📝 手動で作成</button>
+        </div>
+        <div class="content">
+          <div class="callout">Jira に無い作業（調査・環境整備・個人的な TODO など）も同じ一覧・同じ環境セットアップで扱えます。<b>あとから Jira 番号を紐付けて Jira タスクに切り替える</b>こともできます。</div>
+          <div class="form2">
+            <label class="field"><span>番号</span>
+              <div class="keygen"><span class="pfx">T-</span><input value="008" style="width:80px; font-family:var(--mono);" /><span class="muted">自動採番（接頭辞は設定で変更）</span></div>
+            </label>
+            <label class="field"><span>ステータス</span>
+              <select><option selected>To Do</option><option>In Progress</option><option>Done</option></select>
+            </label>
+            <label class="field full"><span>概要 <span style="color:var(--danger)">*</span></span>
+              <input value="Playwright で E2E テストの雛形を作る" />
+            </label>
+            <label class="field full"><span>説明</span>
+              <textarea rows="3">ログイン → ワークスペース作成 → ペイン追加 の 1 本だけ通す。CI では動かさない。</textarea>
+            </label>
+            <label class="field"><span>優先度</span>
+              <select><option>Highest</option><option>High</option><option selected>Medium</option><option>Low</option><option>Lowest</option></select>
+            </label>
+            <label class="field"><span>ラベル</span>
+              <div class="chips-in"><span class="chip">test</span><span class="chip">dx</span><input placeholder="追加…" style="width:100px; padding:2px 6px; font-size:12px;" /></div>
+            </label>
+            <label class="field full"><span>参考リンク（任意・複数可）</span>
+              <div class="row"><input value="https://github.com/ysksm/multi-terminals/issues/34" /><button class="icon">＋</button></div>
+            </label>
+            <label class="field full"><span>環境テンプレート</span>
+              <select><option selected>web-app 標準（frontend ⧉ + backend ⤓ · 4分割）</option><option>backend のみ</option><option>なし（後でタスク詳細から設定）</option></select>
+            </label>
+          </div>
+          <div class="box" style="border:1px solid var(--border); border-radius:8px; padding:10px 14px; background:var(--panel-2);">
+            <h4 style="margin:0 0 8px; font-size:12px; color:var(--text-strong);">作成されるもの</h4>
+            <dl class="kv" style="display:grid; grid-template-columns:110px 1fr; gap:4px 10px; margin:0; font-size:12px;">
+              <dt class="muted">作業フォルダ</dt><dd><code>~/work/T-008/</code></dd>
+              <dt class="muted">ブランチ</dt><dd><code>feature/T-008-playwright-e2e</code> <span class="muted">（{KEY} = T-008、{slug} は概要の ASCII 部分）</span></dd>
+              <dt class="muted">ワークスペース</dt><dd>T-008 Playwright で E2E テストの雛形を作る <span class="muted">· 4分割</span></dd>
+            </dl>
+          </div>
+        </div>
+        <footer>
+          <span class="muted">Jira には何も作成しません</span>
+          <span class="spacer"></span>
+          <button data-close>キャンセル</button>
+          <button data-go="detail">作成（環境は後で）</button>
+          <button class="primary" data-go="detail">作成してセットアップ</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- 3. ローカルタスクの詳細 -->
+    <section class="screen" id="scr-detail">
+      <div class="toolbar">
+        <span class="crumb"><a href="#" data-go="list">タスク</a> /</span>
+        <span class="src local">📝 ローカル</span>
+        <strong class="key local" style="font-family:var(--mono); color:#c4b5fd;">T-007</strong>
+        <span style="color:var(--text-strong)">ローカル開発環境の Docker 化</span>
+        <span class="status-select"><select><option>To Do</option><option selected>In Progress</option><option>Done</option></select></span>
+        <span class="muted"><span class="dot working"></span> 作業中</span>
+        <span class="spacer"></span>
+        <button>🔗 リンクを開く ↗</button>
+        <button class="primary">▶ ワークスペースを開く</button>
+      </div>
+      <div class="body">
+        <div style="display:grid; grid-template-columns: minmax(300px,1fr) minmax(380px,1.3fr); gap:16px; align-items:start;">
+          <div style="display:flex; flex-direction:column; gap:16px;">
+            <div class="card">
+              <header><strong>タスク情報</strong><span class="badge">このアプリで管理</span><span class="spacer"></span><span class="muted">自動保存</span></header>
+              <div class="inner">
+                <dl class="kv edit-kv" style="display:grid; grid-template-columns:96px 1fr; gap:8px 10px; margin:0; font-size:13px; align-items:center;">
+                  <dt class="muted">概要</dt><dd><input value="ローカル開発環境の Docker 化" /></dd>
+                  <dt class="muted">優先度</dt><dd><select style="width:auto"><option>Highest</option><option>High</option><option selected>Medium</option><option>Low</option></select></dd>
+                  <dt class="muted">ラベル</dt><dd><div class="chips-in"><span class="chip">infra</span><span class="chip">dx</span><input placeholder="追加…" style="width:90px; padding:2px 6px; font-size:12px;" /></div></dd>
+                  <dt class="muted">リンク</dt><dd><div class="row" style="display:flex; gap:6px; align-items:center;"><a href="#" style="color:var(--accent); font-size:12px;">docs.docker.com/compose ↗</a><button class="icon">＋</button></div></dd>
+                  <dt class="muted" style="align-self:start; padding-top:6px;">説明</dt><dd><textarea rows="5">docker compose で backend + db + frontend を起動できるようにする。
+- .env.example を整備
+- make dev で一発起動
+- README に手順を書く</textarea></dd>
+                </dl>
+              </div>
+            </div>
+            <div class="card">
+              <header><strong>Jira に紐付ける</strong><span class="muted">任意</span></header>
+              <div class="inner">
+                <div class="link-jira">
+                  <span class="muted">あとで Jira に起票したら:</span>
+                  <input placeholder="PROJ-1310" class="mono" />
+                  <button>取得して紐付け</button>
+                </div>
+                <p class="muted" style="font-size:11px; margin:8px 0 0;">紐付けると番号が Jira の番号に変わり、概要・ステータスは Jira から同期されます（作業フォルダ・ブランチ・ワークスペースはそのまま。ブランチ名は変わりません）。</p>
+              </div>
+            </div>
+            <div class="card">
+              <header><strong>タスクの状態</strong></header>
+              <div class="inner state-row">
+                <button>✓ 完了にする</button>
+                <span class="spacer"></span>
+                <button>🗑 作業フォルダを削除</button>
+                <button class="danger">タスクを削除</button>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <header><strong>作業環境</strong><span class="badge">テンプレート: backend のみ</span><span class="spacer"></span><button class="icon">テンプレートから展開…</button></header>
+            <div class="inner">
+              <dl class="kv" style="display:grid; grid-template-columns:110px 1fr; gap:8px 10px; margin:0 0 10px; font-size:13px; align-items:center;">
+                <dt class="muted">作業フォルダ</dt><dd><input value="~/work/T-007/" class="mono" /> <span class="fresh" style="font-size:11px;">✓ 存在します</span></dd>
+                <dt class="muted">ブランチ</dt><dd><input value="feature/T-007-docker" class="mono" /></dd>
+              </dl>
+              <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; margin:12px 0 6px;">リポジトリとペイン</div>
+              <div class="repos" style="display:flex; flex-direction:column; gap:6px;">
+                <div class="repo-row" style="border:1px solid var(--border); border-radius:6px; padding:8px 10px; background:var(--panel-2); display:grid; grid-template-columns:1fr auto; gap:4px 10px;"><span class="name" style="color:var(--text-strong)">infra</span><span class="st muted">pane 0 / 1</span>
+                  <div class="meta muted" style="grid-column:1/-1; font-size:11px;">取得: ⤓ git clone git@github.com:acme/infra.git · セットアップ: <code>make setup</code> · 起動: <code>docker compose up</code>（手動）</div></div>
+                <button class="ghost" style="text-align:left;">＋ リポジトリを追加</button>
+              </div>
+              <div class="cta" style="display:flex; gap:10px; align-items:center; margin-top:12px;"><button class="primary" disabled>保存</button><span class="muted">ワークスペース: T-007 Docker 化（左右2分割）</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. 設定: ローカルタスク -->
+    <section class="screen" id="scr-settings">
+      <div class="toolbar"><strong>設定</strong><span class="crumb">· ローカルタスク</span><span class="spacer"></span><button class="icon" data-go="list">✕ 閉じる</button></div>
+      <div class="settings-wrap">
+        <nav class="settings-nav">
+          <div class="grp">タスク環境</div>
+          <button>🧩 環境テンプレート</button>
+          <button>⧉ ベースクローン</button>
+          <button>🔗 Jira 接続</button>
+          <button class="on">📝 ローカルタスク</button>
+          <div class="grp">全体</div>
+          <button>⚙ セットアップ設定</button>
+        </nav>
+        <div style="padding:16px; overflow-y:auto;">
+          <div class="card" style="max-width:640px;">
+            <header><strong>ローカルタスク</strong><span class="muted">Jira を使わないタスクの番号とステータス</span></header>
+            <div class="inner">
+              <dl class="kv" style="display:grid; grid-template-columns:140px 1fr; gap:10px; margin:0 0 14px; font-size:13px; align-items:center;">
+                <dt class="muted">番号の接頭辞</dt><dd><div style="display:flex; gap:8px; align-items:center;"><input value="T" class="mono" style="width:100px;" /><span class="muted">次は <code>T-008</code>。Jira のプロジェクトキーと被らないものにしてください</span></div></dd>
+                <dt class="muted">桁数</dt><dd><input value="3" style="width:60px;" /> <span class="muted">T-008 のようにゼロ埋め</span></dd>
+                <dt class="muted">Jira 接続なしでも使う</dt><dd><label class="check"><input type="checkbox" checked /> Jira 未設定のときも「＋ タスクを追加」を出す（Jira タブは無効表示）</label></dd>
+              </dl>
+              <div class="muted" style="font-size:11px; text-transform:uppercase; letter-spacing:.05em; margin:0 0 6px;">ステータス（並び順 = 表示順）</div>
+              <div class="status-list">
+                <div class="row"><span class="handle">⋮⋮</span><input value="To Do" /><select><option selected>未着手</option><option>進行中</option><option>完了</option></select><button class="icon danger">✕</button></div>
+                <div class="row"><span class="handle">⋮⋮</span><input value="In Progress" /><select><option>未着手</option><option selected>進行中</option><option>完了</option></select><button class="icon danger">✕</button></div>
+                <div class="row"><span class="handle">⋮⋮</span><input value="Done" /><select><option>未着手</option><option>進行中</option><option selected>完了</option></select><button class="icon danger">✕</button></div>
+                <button class="ghost" style="text-align:left;">＋ ステータスを追加</button>
+              </div>
+              <p class="muted" style="font-size:11px; margin:10px 0 0;">「完了」カテゴリのステータスにしてもローカル状態（環境あり / 完了）は自動では変わりません。Jira タスクと同じく「完了にする」は手動です。</p>
+              <div class="cta" style="margin-top:12px;"><button class="primary">保存</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+</div>
+
+<!-- ================= 設計メモ ================= -->
+<div class="notes">
+  <div class="card"><div class="inner">
+    <h3>考え方</h3>
+    <ol>
+      <li><strong>タスクに「取込元」を持たせる</strong>: <code>source = jira | local</code>。一覧・サイドバー・詳細は同じ画面で、取込元バッジ（<span class="src jira">Jira</span> / <span class="src local">📝 ローカル</span>）で見分ける。環境セットアップ・ワークスペース・作業フォルダの扱いは完全に共通。</li>
+      <li><strong>番号は自動採番</strong>: 設定の接頭辞 + 連番（既定 <code>T-001</code>…）。Jira 番号と同じ書式なので <code>{KEY}</code> パターン（作業フォルダ・ブランチ名）がそのまま使える。接頭辞は Jira のプロジェクトキーと重ならないよう設定で変更可。</li>
+      <li><strong>ローカルタスクは編集できる</strong>: 概要・説明・優先度・ラベル・リンク・ステータスを詳細画面（と一覧のセレクト）で直接編集し自動保存。Jira タスクの同項目は読み取り専用のまま。</li>
+      <li><strong>ステータスは自前で持つ</strong>: 設定で名前とカテゴリ（未着手 / 進行中 / 完了）を定義。一覧の「ステータス」列は Jira タスクなら Jira の値、ローカルなら自前の値を出す。ローカル状態（未準備 / 環境あり / 作業中 / 完了）とは別物で、従来どおり「完了にする」は手動。</li>
+      <li><strong>あとから Jira に紐付け</strong>: 詳細の「Jira に紐付ける」に番号を入れると Jira から取得して <code>source = jira</code> に切り替える。番号は Jira のものに変わるが、作業フォルダ・ブランチ・ワークスペースはそのまま（ブランチ名は変えない）。逆方向（Jira → ローカル）はしない。</li>
+      <li><strong>Jira 未設定でも使える</strong>: 接続設定が無ければ「＋ タスクを追加」は手動タブだけになり、「Jira を同期」は非表示。タスク管理だけ先に使い始められる。</li>
+    </ol>
+  </div></div>
+  <div class="card"><div class="inner">
+    <h3>実装への差分（現状の実装に対して）</h3>
+<pre>Task.Source        … "jira" | "local"（既存データは jira 扱い）
+Task.Local         … {Summary, Description, Priority, Labels[], Links[], StatusID}  ※ local のみ
+Task.JiraKey       … local では採番した "T-007"（一意性の検査は共通）
+Settings.LocalTask … {Prefix "T", Digits 3, NextSeq, Statuses[{ID, Name, Category}]}
+
+API
+  POST  /api/tasks            {summary, description, priority, labels, links, statusId, templateId, setup}
+  PATCH /api/tasks/{id}       local: summary/description/priority/labels/links/statusId も受け付ける
+  POST  /api/tasks/{id}/link-jira {key}   → 取得して source=jira に切替
+  GET/PUT /api/task-settings   LocalTask を追加
+
+画面
+  一覧: 取込元バッジ・取込元フィルタ・ローカルはステータスがセレクト
+  追加: 「＋ タスクを追加」にタブ（Jira から取り込む / 手動で作成）
+  詳細: ローカルは左カラムが編集フォーム、「Jira に紐付ける」カード
+  設定: 「📝 ローカルタスク」パネル（接頭辞・桁数・ステータス定義）
+  サイドバー: 番号を紫で表示 + 📝 バッジ（Jira は青）</pre>
+  </div></div>
+</div>
+
+<script>
+  (function () {
+    const screens = ['list', 'detail', 'settings'];
+    const flowBtns = document.querySelectorAll('.flow button');
+    const overlay = document.getElementById('create-overlay');
+    function show(id) {
+      if (id === 'create') { go('list'); overlay.classList.add('on'); flowBtns.forEach(b => b.classList.toggle('on', b.dataset.go === 'create')); return; }
+      overlay.classList.remove('on');
+      go(id);
+    }
+    function go(id) {
+      screens.forEach(s => document.getElementById('scr-' + s).classList.toggle('on', s === id));
+      flowBtns.forEach(b => b.classList.toggle('on', b.dataset.go === id));
+      try { localStorage.setItem('mt-mock-local.screen', id); } catch (e) {}
+    }
+    document.addEventListener('click', (e) => {
+      const tab = e.target.closest('[data-tab]');
+      if (tab) { document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b === tab)); return; }
+      const t = e.target.closest('[data-go],[data-close]');
+      if (!t) return;
+      e.preventDefault();
+      if (t.hasAttribute('data-close')) overlay.classList.remove('on');
+      if (t.dataset.go) show(t.dataset.go);
+    });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.classList.remove('on'); });
+    const hash = location.hash.replace(/^#/, '');
+    let initial = 'list';
+    try { initial = localStorage.getItem('mt-mock-local.screen') || 'list'; } catch (e) {}
+    if (['list', 'create', 'detail', 'settings'].includes(hash)) initial = hash;
+    show(initial);
+  })();
+</script>
+
+</body>
+</html>
